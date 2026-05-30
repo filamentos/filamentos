@@ -28,6 +28,7 @@ app.onError((err, c) => {
 })
 
 // ── Export for Vercel ─────────────────────────────────────────
+console.log('[FilamentOS] app initialised, DATABASE_URL present:', !!process.env.DATABASE_URL)
 export default app
 
 // ── Local dev server ──────────────────────────────────────────
