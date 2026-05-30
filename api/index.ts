@@ -1,11 +1,15 @@
-import _bundle from './_server.bundle.cjs'
+import mod from './_server.bundle.cjs'
 
-// esbuild CJS output with __esModule:true wraps the default export.
-// Handle both shapes: { default: app } and app directly.
+// esbuild CJS output wraps the default export under .default
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mod = _bundle as any
-const app: { fetch: (req: Request) => Promise<Response> } =
-  typeof mod?.default?.fetch === 'function' ? mod.default : mod
+const m = mod as any
+const app: { fetch: (req: Request, ...args: unknown[]) => Promise<Response> } =
+  typeof m?.default?.fetch === 'function' ? m.default : m
 
 export const config = { maxDuration: 30 }
-export default app.fetch
+
+// Explicit async function signature so Vercel recognises this as a
+// Web-API Request→Response handler (not the old VercelRequest/VercelResponse style).
+export default async function handler(req: Request): Promise<Response> {
+  return app.fetch(req)
+}
