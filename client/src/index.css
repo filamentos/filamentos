@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    background-color: #0f1623;
+    color: #cdd6f4;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-page text-ink-primary;
+    margin: 0;
+  }
+
+  /* Scrollbar — subtle dark */
+  ::-webkit-scrollbar        { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track  { background: #0f1623; }
+  ::-webkit-scrollbar-thumb  { background: #1e2a3e; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #2e3e58; }
+
+  /* Monospace numbers everywhere */
+  .mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
+}
+
+@layer components {
+  /* ── Buttons ──────────────────────────────── */
+  .btn-primary {
+    @apply inline-flex items-center gap-1.5 rounded-md bg-accent-strong px-4 py-2
+           text-sm font-semibold text-white
+           hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center gap-1.5 rounded-md bg-elevated px-4 py-2
+           text-sm font-semibold text-accent border border-accent-muted
+           hover:bg-accent-subtle transition-colors disabled:opacity-40;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center gap-1.5 rounded-md bg-transparent px-4 py-2
+           text-sm font-medium text-ink-secondary border border-border
+           hover:bg-elevated transition-colors disabled:opacity-40;
+  }
+  .btn-danger {
+    @apply inline-flex items-center gap-1.5 rounded-md bg-danger-bg px-4 py-2
+           text-sm font-semibold text-danger border border-[#3a2020]
+           hover:opacity-80 transition-opacity disabled:opacity-40;
+  }
+  .btn-icon {
+    @apply inline-flex items-center justify-center rounded-md w-8 h-8
+           text-ink-secondary hover:bg-elevated hover:text-ink-primary transition-colors;
+  }
+
+  /* ── Inputs ───────────────────────────────── */
+  .input {
+    @apply block w-full h-9 rounded-md bg-input border border-border px-3
+           text-sm text-ink-primary placeholder:text-ink-tertiary
+           focus:outline-none focus:border-accent-strong
+           transition-colors;
+  }
+  .label {
+    @apply block text-xs font-medium text-ink-secondary mb-1;
+  }
+
+  /* ── Cards ────────────────────────────────── */
+  .card {
+    @apply bg-surface border border-border rounded-lg p-4
+           hover:border-border-strong transition-colors;
+  }
+  .card-sm {
+    @apply bg-surface border border-border rounded-md p-3;
+  }
+
+  /* ── Badges ───────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-[7px] py-[2px]
+           text-[10px] font-bold uppercase tracking-wide;
+  }
+  .badge-default  { @apply badge bg-elevated text-ink-secondary; }
+  .badge-success  { @apply badge bg-success-bg text-success; }
+  .badge-warning  { @apply badge bg-warning-bg text-warning; }
+  .badge-danger   { @apply badge bg-danger-bg text-danger; }
+  .badge-accent   { @apply badge bg-accent-strong text-white; }
+  .badge-info     { @apply badge bg-info-bg text-info; }
+
+  /* ── Progress bar ─────────────────────────── */
+  .progress-track {
+    @apply w-full h-1 rounded-full bg-elevated overflow-hidden;
+  }
+  .progress-fill-good    { @apply h-full rounded-full bg-accent transition-all; }
+  .progress-fill-warning { @apply h-full rounded-full bg-warning transition-all; }
+  .progress-fill-danger  { @apply h-full rounded-full bg-danger transition-all; }
+
+  /* ── Alert strips ─────────────────────────── */
+  .alert-strip-critical {
+    @apply bg-danger-bg text-danger border-y border-[#3a2020] px-4 py-2 text-[11px] font-medium;
+  }
+  .alert-strip-warning {
+    @apply bg-warning-bg text-warning border-y border-[#2e2810] px-4 py-2 text-[11px] font-medium;
+  }
+  .alert-strip-info {
+    @apply bg-info-bg text-info border-y border-[#1e3050] px-4 py-2 text-[11px] font-medium;
+  }
+}
