@@ -147,6 +147,18 @@ function SpoolRow({ spool, onWeigh, onSwap }: SpoolRowProps) {
 
 // ── Profile card ──────────────────────────────────────────────
 
+// ── Reserve count badge — color-coded by threshold ───────────
+
+function ReserveBadge({ count, threshold }: { count: number; threshold: number }) {
+  if (count === 0) {
+    return <Badge variant="danger">0 reserve</Badge>
+  }
+  if (count <= threshold) {
+    return <Badge variant="warning">{count} reserve</Badge>
+  }
+  return <Badge variant="info">{count} reserve</Badge>
+}
+
 interface ProfileCardProps {
   profile: FilamentProfileWithCounts
   onWeigh: (spool: SpoolWithRemaining) => void
@@ -198,9 +210,7 @@ function ProfileCard({ profile, onWeigh, onSwap }: ProfileCardProps) {
           {active > 0 && (
             <Badge variant="accent">{active} active</Badge>
           )}
-          {totalReserve > 0 && (
-            <Badge variant="info">{totalReserve} reserve</Badge>
-          )}
+          <ReserveBadge count={totalReserve} threshold={profile.low_spool_threshold ?? 1} />
           {profileAlertBadge(profile)}
         </div>
       </div>

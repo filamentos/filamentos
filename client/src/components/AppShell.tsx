@@ -9,11 +9,13 @@ import {
   IconShoppingCart,
   IconReceipt,
 } from '@tabler/icons-react'
+import { useAlerts } from '../hooks/useAlerts'
 
 interface NavItem {
   to: string
   icon: React.ElementType
   label: string
+  badgeCount?: number
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -25,17 +27,21 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/quotes',    icon: IconReceipt,      label: 'Quotes' },
 ]
 
-const BOTTOM_NAV: NavItem[] = [
-  { to: '/alerts',   icon: IconBell,     label: 'Alerts' },
-  { to: '/settings', icon: IconSettings, label: 'Settings' },
-]
-
 interface AppShellProps {
   title: string
   children: React.ReactNode
 }
 
 export default function AppShell({ title, children }: AppShellProps) {
+  const { data: alerts = [] } = useAlerts()
+  const alertCount = alerts.filter((a) => !a.is_dismissed).length
+  const criticalCount = alerts.filter((a) => a.severity === 'critical' && !a.is_dismissed).length
+
+  const BOTTOM_NAV: NavItem[] = [
+    { to: '/alerts',   icon: IconBell,     label: 'Alerts', badgeCount: alertCount },
+    { to: '/settings', icon: IconSettings, label: 'Settings' },
+  ]
+
   return (
     <div className="flex h-screen overflow-hidden bg-page">
       {/* ── Sidebar ─────────────────────────────── */}
@@ -62,8 +68,15 @@ export default function AppShell({ title, children }: AppShellProps) {
 
         {/* Bottom nav */}
         <div className="flex flex-col items-center gap-1 w-full px-[10px] pb-3">
-          {BOTTOM_NAV.map(({ to, icon: Icon, label }) => (
-            <SidebarIcon key={to} to={to} icon={Icon} label={label} />
+          {BOTTOM_NAV.map(({ to, icon: Icon, label, badgeCount }) => (
+            <SidebarIcon
+              key={to}
+              to={to}
+              icon={Icon}
+              label={label}
+              badgeCount={badgeCount}
+              badgeCritical={to === '/alerts' && criticalCount > 0}
+            />
           ))}
         </div>
       </aside>
@@ -94,9 +107,18 @@ interface SidebarIconProps {
   icon: React.ElementType
   label: string
   exact?: boolean
+  badgeCount?: number
+  badgeCritical?: boolean
 }
 
-function SidebarIcon({ to, icon: Icon, label, exact = false }: SidebarIconProps) {
+function SidebarIcon({
+  to,
+  icon: Icon,
+  label,
+  exact = false,
+  badgeCount,
+  badgeCritical = false,
+}: SidebarIconProps) {
   const location = useLocation()
   const isActive = exact
     ? location.pathname === to
@@ -114,13 +136,24 @@ function SidebarIcon({ to, icon: Icon, label, exact = false }: SidebarIconProps)
       ].join(' ')}
       style={
         isActive
-          ? {
-              boxShadow: 'inset 2px 0 0 0 #6366f1',
-            }
+          ? { boxShadow: 'inset 2px 0 0 0 #6366f1' }
           : undefined
       }
     >
       <Icon size={18} stroke={1.75} />
+
+      {/* Alert count badge */}
+      {badgeCount != null && badgeCount > 0 && (
+        <span
+          className={[
+            'absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] rounded-full',
+            'flex items-center justify-center text-[9px] font-bold text-white px-[3px]',
+            badgeCritical ? 'bg-danger' : 'bg-warning',
+          ].join(' ')}
+        >
+          {badgeCount > 9 ? '9+' : badgeCount}
+        </span>
+      )}
     </NavLink>
   )
 }

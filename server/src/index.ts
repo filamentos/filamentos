@@ -4,6 +4,11 @@ import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import authRoutes from './routes/auth'
 import filamentRoutes from './routes/filament'
+import alertRoutes from './routes/alerts'
+import printerRoutes from './routes/printers'
+import partsRoutes from './routes/parts'
+import workshopRoutes from './routes/workshop'
+import purchaseRoutes from './routes/purchases'
 
 const app = new Hono()
 
@@ -18,6 +23,11 @@ app.use(
 
 app.route('/api/auth', authRoutes)
 app.route('/api/filament', filamentRoutes)
+app.route('/api/alerts', alertRoutes)
+app.route('/api/printers', printerRoutes)
+app.route('/api/printers', partsRoutes)
+app.route('/api/workshop', workshopRoutes)
+app.route('/api/purchases', purchaseRoutes)
 
 app.get('/health', (c) => c.json({ ok: true, env: !!process.env.DATABASE_URL }))
 

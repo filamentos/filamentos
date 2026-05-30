@@ -1056,9 +1056,17 @@ Common M2/M3/M4 screw kits with known contents by SKU
 - [x] Zero TypeScript errors, server and client both clean
 
 **To go live:**
-- [ ] Paste Supabase DATABASE_URL into .env
-- [ ] cd server && npm run db:generate && npm run db:migrate
-- [ ] Push to GitHub → Vercel auto-deploys
+- [x] Paste Supabase DATABASE_URL into .env
+- [x] cd server && npm run db:generate && npm run db:migrate
+- [x] Push to GitHub → Vercel auto-deploys
+
+**🚀 PHASE 1 SHIPPED — filamentos-xzpd.vercel.app — $(date +%Y-%m-%d)**
+- All 23 database tables live in Supabase
+- Magic link auth fully working (Resend → Supabase → session cookie)
+- Protected dashboard + filament inventory routes live
+- Midnight Blue design system live in production
+- Vercel auto-deploys on every git push to main
+- Survived: ESM/CJS boundary issues, pgBouncer quirks, Vercel handler signature fixes, stale password reset
 
 ### Phase 2 — Core inventory
 - [ ] Reserve stock tracking + spool promotion queue

@@ -5,10 +5,11 @@ import {
   IconTool,
   IconShoppingCart,
   IconChevronRight,
-  IconAlertTriangle,
 } from '@tabler/icons-react'
 import AppShell from '../components/AppShell'
+import AlertBanner from '../components/ui/AlertBanner'
 import { useProfiles } from '../hooks/useFilament'
+import { useAlerts } from '../hooks/useAlerts'
 import { useAuthStore } from '../stores/auth'
 import { api } from '../lib/api'
 
@@ -63,18 +64,6 @@ function StatCard({ label, value, icon: Icon, to, sub, alert = false }: StatCard
   )
 }
 
-// ── Alert strip ───────────────────────────────────────────────
-
-function AlertBanner({ count }: { count: number }) {
-  if (count === 0) return null
-  return (
-    <div className="alert-strip-warning rounded-lg flex items-center gap-2 mb-5">
-      <IconAlertTriangle size={14} />
-      <span>{count} active alert{count !== 1 ? 's' : ''} — </span>
-      <Link to="/alerts" className="underline hover:text-warning">View all</Link>
-    </div>
-  )
-}
 
 // ── Quick actions ─────────────────────────────────────────────
 
@@ -116,6 +105,7 @@ export default function Dashboard() {
   const setUser = useAuthStore((s) => s.setUser)
 
   const { data: profiles = [] } = useProfiles()
+  const { data: activeAlerts = [] } = useAlerts()
 
   // Derive filament stats from already-loaded profiles
   const totalProfiles = profiles.length
@@ -147,8 +137,8 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* Alert banner (placeholder — no alert system yet) */}
-      <AlertBanner count={0} />
+      {/* Live alert banner */}
+      <AlertBanner alerts={activeAlerts} />
 
       {/* Stat grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

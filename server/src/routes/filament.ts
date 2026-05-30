@@ -8,6 +8,7 @@ import {
 } from '../db/schema'
 import { requireAuth } from '../lib/session'
 import { ok, err } from '../lib/response'
+import { evaluateAlerts } from '../lib/alerts'
 
 const filament = new Hono()
 
@@ -471,6 +472,9 @@ filament.post('/spools/:id/weigh', async (c) => {
     .set({ current_gross_weight_g: grossWeight })
     .where(eq(spools.id, spoolId))
 
+  // Fire-and-forget — don't block the response on alert evaluation
+  evaluateAlerts(userId).catch((e) => console.error('[alerts]', e))
+
   return ok(c, { log, updated_gross_weight_g: body.gross_weight_g }, 201)
 })
 
@@ -616,6 +620,9 @@ filament.post('/spools/:id/swap', async (c) => {
 
     promotedSpool = promoted
   }
+
+  // Fire-and-forget — re-evaluate after swap since reserve count changed
+  evaluateAlerts(userId).catch((e) => console.error('[alerts]', e))
 
   return ok(c, {
     emptied_spool: emptiedSpool,
