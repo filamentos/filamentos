@@ -9,6 +9,33 @@ import {
   jsonb,
   timestamp,
 } from 'drizzle-orm/pg-core'
+
+// ── Material Reference ─────────────────────────────────────────
+
+export const materialReference = pgTable('material_reference', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  name: text('name').notNull().unique(),
+  variants: text('variants').array(),
+  nozzle_min: integer('nozzle_min'),
+  nozzle_max: integer('nozzle_max'),
+  nozzle_recommended: integer('nozzle_recommended'),
+  bed_min: integer('bed_min'),
+  bed_max: integer('bed_max'),
+  bed_recommended: integer('bed_recommended'),
+  requires_enclosure: boolean('requires_enclosure').default(false),
+  dry_before_print: boolean('dry_before_print').default(false),
+  drying_temp_c: integer('drying_temp_c'),
+  drying_hours: numeric('drying_hours', { precision: 4, scale: 1 }),
+  cooling_fan: text('cooling_fan').default('high'), // none | low | high
+  density_g_cm3: numeric('density_g_cm3', { precision: 5, scale: 3 }),
+  tensile_strength_mpa: integer('tensile_strength_mpa'),
+  heat_resistance_c: integer('heat_resistance_c'),
+  uv_resistant: boolean('uv_resistant').default(false),
+  food_safe: boolean('food_safe').default(false),
+  is_abrasive: boolean('is_abrasive').default(false),
+  moisture_sensitivity_days: integer('moisture_sensitivity_days'),
+  beginner_tip: text('beginner_tip'),
+})
 import { sql } from 'drizzle-orm'
 
 // ── Auth ──────────────────────────────────────────────────────

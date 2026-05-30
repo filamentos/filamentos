@@ -10,6 +10,7 @@ import {
   IconAlertCircle,
   IconDroplet,
 } from '@tabler/icons-react'
+import { useAuthStore } from '../stores/auth'
 import AppShell from '../components/AppShell'
 import Badge from '../components/ui/Badge'
 import FilamentProgress from '../components/ui/FilamentProgress'
@@ -230,6 +231,145 @@ function ProfileCard({ profile, onWeigh, onSwap }: ProfileCardProps) {
 // ── Profile spool list (loaded on expand) ─────────────────────
 
 import { useProfile } from '../hooks/useFilament'
+import { useQuery } from '@tanstack/react-query'
+
+// ── Material reference panel ──────────────────────────────────
+
+interface MaterialRef {
+  name: string
+  nozzle_min: number | null
+  nozzle_max: number | null
+  nozzle_recommended: number | null
+  bed_min: number | null
+  bed_max: number | null
+  bed_recommended: number | null
+  requires_enclosure: boolean | null
+  dry_before_print: boolean | null
+  drying_temp_c: number | null
+  drying_hours: string | null
+  cooling_fan: string | null
+  density_g_cm3: string | null
+  tensile_strength_mpa: number | null
+  heat_resistance_c: number | null
+  uv_resistant: boolean | null
+  food_safe: boolean | null
+  is_abrasive: boolean | null
+  moisture_sensitivity_days: number | null
+  beginner_tip: string | null
+}
+
+function MaterialInfoPanel({
+  material,
+  openedDate,
+  isInDrybox,
+  experienceLevel,
+}: {
+  material: string
+  openedDate?: string | null
+  isInDrybox?: boolean
+  experienceLevel?: string
+}) {
+  const { data: mat } = useQuery<MaterialRef>({
+    queryKey: ['material', material],
+    queryFn: () => import('../lib/api').then(({ api }) => api.get<MaterialRef>(`/materials/${encodeURIComponent(material)}`)),
+    staleTime: Infinity,
+  })
+
+  if (!mat) return null
+
+  const isPro = experienceLevel === 'pro'
+
+  // Moisture warning
+  let moistureWarning = ''
+  if (mat.dry_before_print && mat.moisture_sensitivity_days && openedDate && !isInDrybox) {
+    const daysOpen = Math.floor((Date.now() - new Date(openedDate).getTime()) / 86400000)
+    if (daysOpen >= mat.moisture_sensitivity_days) {
+      moistureWarning = `Open for ${daysOpen} days — ${mat.name} absorbs moisture after ${mat.moisture_sensitivity_days} day(s). Dry before printing.`
+    }
+  }
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border">
+      <p className="text-[10px] font-semibold uppercase text-ink-tertiary tracking-wider mb-2">Material specs</p>
+
+      {moistureWarning && (
+        <div className="flex items-start gap-1.5 p-2.5 rounded-md bg-warning-bg border border-border text-xs text-warning mb-3">
+          <IconAlertTriangle size={12} className="shrink-0 mt-0.5" />
+          <span>{moistureWarning}</span>
+        </div>
+      )}
+
+      {mat.requires_enclosure && (
+        <div className="flex items-start gap-1.5 p-2.5 rounded-md bg-danger-bg border border-border text-xs text-danger mb-3">
+          <IconAlertCircle size={12} className="shrink-0 mt-0.5" />
+          <span>Requires enclosure to prevent warping and cracking.</span>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mb-2">
+        <div>
+          <span className="text-ink-tertiary">Nozzle: </span>
+          <span className="font-mono text-ink-secondary">
+            {mat.nozzle_min}–{mat.nozzle_max}°C
+          </span>
+          {mat.nozzle_recommended && (
+            <span className="text-ink-tertiary"> (rec. {mat.nozzle_recommended}°C)</span>
+          )}
+        </div>
+        <div>
+          <span className="text-ink-tertiary">Bed: </span>
+          <span className="font-mono text-ink-secondary">
+            {mat.bed_min}–{mat.bed_max}°C
+          </span>
+          {mat.bed_recommended && (
+            <span className="text-ink-tertiary"> (rec. {mat.bed_recommended}°C)</span>
+          )}
+        </div>
+        {mat.dry_before_print && mat.drying_temp_c && (
+          <div>
+            <span className="text-ink-tertiary">Dry: </span>
+            <span className="font-mono text-ink-secondary">
+              {mat.drying_temp_c}°C × {mat.drying_hours}h
+            </span>
+          </div>
+        )}
+        <div>
+          <span className="text-ink-tertiary">Cooling: </span>
+          <span className="text-ink-secondary capitalize">{mat.cooling_fan ?? 'high'}</span>
+        </div>
+        {mat.uv_resistant && (
+          <div><span className="text-success">UV resistant</span></div>
+        )}
+        {mat.food_safe && (
+          <div><span className="text-success">Food safe (verify brand)</span></div>
+        )}
+        {mat.is_abrasive && (
+          <div><span className="text-warning">Abrasive — use hardened nozzle</span></div>
+        )}
+      </div>
+
+      {isPro && (
+        <div className="flex gap-4 text-xs mb-2">
+          {mat.density_g_cm3 && (
+            <span className="text-ink-tertiary">ρ <span className="font-mono text-ink-secondary">{mat.density_g_cm3} g/cm³</span></span>
+          )}
+          {mat.tensile_strength_mpa && (
+            <span className="text-ink-tertiary">Tensile <span className="font-mono text-ink-secondary">{mat.tensile_strength_mpa} MPa</span></span>
+          )}
+          {mat.heat_resistance_c && (
+            <span className="text-ink-tertiary">Heat <span className="font-mono text-ink-secondary">{mat.heat_resistance_c}°C</span></span>
+          )}
+        </div>
+      )}
+
+      {mat.beginner_tip && !isPro && (
+        <p className="text-[11px] text-ink-tertiary italic border-t border-border pt-2">
+          💡 {mat.beginner_tip}
+        </p>
+      )}
+    </div>
+  )
+}
 
 function ProfileSpoolList({
   profile,
@@ -241,6 +381,7 @@ function ProfileSpoolList({
   onSwap: (s: SpoolWithRemaining) => void
 }) {
   const { data, isLoading } = useProfile(profile.id)
+  const user = useAuthStore((s) => s.user)
 
   if (isLoading) {
     return (
@@ -259,6 +400,8 @@ function ProfileSpoolList({
       </div>
     )
   }
+
+  const activeSpool = spools.find((s) => s.status === 'active')
 
   return (
     <div className="mt-3 pt-3 border-t border-border">
@@ -282,6 +425,14 @@ function ProfileSpoolList({
           onSwap={onSwap}
         />
       ))}
+
+      {/* Material info panel */}
+      <MaterialInfoPanel
+        material={profile.material + (profile.material_variant ? ` ${profile.material_variant}` : '')}
+        openedDate={activeSpool?.opened_date}
+        isInDrybox={activeSpool?.is_in_drybox}
+        experienceLevel={user?.experience_level}
+      />
     </div>
   )
 }

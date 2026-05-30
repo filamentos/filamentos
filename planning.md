@@ -1068,14 +1068,19 @@ Common M2/M3/M4 screw kits with known contents by SKU
 - Vercel auto-deploys on every git push to main
 - Survived: ESM/CJS boundary issues, pgBouncer quirks, Vercel handler signature fixes, stale password reset
 
-### Phase 2 — Core inventory
-- [ ] Reserve stock tracking + spool promotion queue
-- [ ] Alert system (gram + spool count + wear)
-- [ ] Printer records + accessories + slot assignments
-- [ ] Spare parts inventory per printer
-- [ ] Workshop consumables + assortment kit import
-- [ ] Purchase records + source tracking
-- [ ] Compatibility checker (filament ↔ printer)
+### Phase 2 — Core inventory ✅ COMPLETE
+
+- [x] Alert system — evaluateAlerts(userId), dedup guard, filament gram/spool/last-spool + parts stock + wear rules
+- [x] Alert routes — GET /api/alerts, POST read/dismiss/evaluate
+- [x] AlertBanner on dashboard — critical (red) / warning (yellow), bell count badge in sidebar
+- [x] Reserve stock badges — 0 = danger, ≤ threshold = warning, 2+ = info, color-coded
+- [x] Printer CRUD — 20 known models with auto-fill (Bambu X1C/P1S/A1/A1 Mini/H2D, Flashforge AD5X, Prusa MK4, Creality K1/Ender 3, Voron 2.4 etc.)
+- [x] Accessories — AMS Lite compatibility validation, AMS HT requires AMS 2 Pro guard
+- [x] Slot grid — color swatches per slot, spool picker with diameter filter
+- [x] Spare parts — GET/POST/PATCH/DELETE per printer, install flow (decrements stock, creates installed_item), auto-seeds common parts on printer add
+- [x] Workshop — full CRUD, import-kit wizard, category tabs, inline ±qty controls, low-stock highlights
+- [x] Purchases — timeline with type filter, total spend, price history endpoint
+- [x] Compatibility checker — checkCompatibility(printerId, profileId) → diameter, nozzle temp, enclosure, abrasive material, TPU/AMS rules. GET /api/printers/:id/compat/:profileId
 
 ### Phase 3 — Kits, projects, reference data, quote engine
 - [ ] Print kits with component tracking

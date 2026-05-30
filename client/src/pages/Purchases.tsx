@@ -4,7 +4,18 @@ import {
   IconPlus,
   IconShoppingCart,
   IconTag,
+  IconChartLine,
+  IconList,
 } from '@tabler/icons-react'
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts'
 import AppShell from '../components/AppShell'
 import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
@@ -33,6 +44,7 @@ interface PurchaseRecord {
   source_domain: string | null
 }
 
+
 // ── Hooks ─────────────────────────────────────────────────────
 
 const PURCHASE_KEY = ['purchases'] as const
@@ -52,10 +64,11 @@ function useCreatePurchase() {
   })
 }
 
+
 // ── Item type config ──────────────────────────────────────────
 
 const ITEM_TYPES = [
-  { value: 'all',           label: 'All' },
+  { value: 'all',            label: 'All' },
   { value: 'filament_spool', label: 'Filament' },
   { value: 'printer_part',   label: 'Parts' },
   { value: 'printer',        label: 'Printers' },
@@ -87,7 +100,6 @@ function PurchaseRow({ entry }: { entry: PurchaseRecord }) {
 
   return (
     <div className="flex items-start gap-3 py-3 border-b border-border last:border-0">
-      {/* Date */}
       <div className="w-16 shrink-0 text-center">
         <p className="text-[11px] font-mono text-ink-tertiary">
           {new Date(r.purchase_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
@@ -96,13 +108,9 @@ function PurchaseRow({ entry }: { entry: PurchaseRecord }) {
           {new Date(r.purchase_date).getFullYear()}
         </p>
       </div>
-
-      {/* Type badge */}
       <div className="mt-0.5 shrink-0">
         {itemTypeBadge(r.item_type)}
       </div>
-
-      {/* Description */}
       <div className="flex-1 min-w-0">
         <p className="text-sm text-ink-primary">
           {r.product_title ?? r.item_type}
@@ -124,8 +132,6 @@ function PurchaseRow({ entry }: { entry: PurchaseRecord }) {
           )}
         </div>
       </div>
-
-      {/* Price */}
       {priceDisplay && (
         <div className="shrink-0 text-right">
           <p className="text-sm font-mono text-ink-primary">{priceDisplay}</p>
@@ -136,6 +142,141 @@ function PurchaseRow({ entry }: { entry: PurchaseRecord }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Price history chart ───────────────────────────────────────
+
+// Colors per source — cycle through
+const SOURCE_COLORS = ['#818cf8', '#4ade80', '#fbbf24', '#60a5fa', '#f87171', '#c084fc']
+
+function PriceHistoryChart({
+  records,
+  currency,
+}: {
+  records: PurchaseRecord[]
+  currency: string
+}) {
+  // Group records by item_ref_id — only show items with 2+ records
+  const byItem = new Map<string, PurchaseRecord[]>()
+  for (const r of records) {
+    if (!r.record.item_ref_id) continue
+    if (!r.record.price_per_unit && !r.record.total_paid) continue
+    const key = r.record.item_ref_id
+    if (!byItem.has(key)) byItem.set(key, [])
+    byItem.get(key)!.push(r)
+  }
+
+  const eligible = Array.from(byItem.entries()).filter(([, v]) => v.length >= 2)
+
+  if (eligible.length === 0) {
+    return (
+      <div className="card text-center py-12">
+        <IconChartLine size={32} className="text-ink-tertiary mx-auto mb-3" stroke={1} />
+        <p className="text-ink-secondary text-md font-medium">No price history yet</p>
+        <p className="text-ink-tertiary text-xs mt-1">
+          Price history appears when an item has 2+ purchase records.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {eligible.map(([itemId, itemRecords]) => {
+        const title = itemRecords[0].record.product_title ?? itemRecords[0].record.item_type
+        const sources = [...new Set(itemRecords.map((r) => r.source_name ?? 'Unknown'))]
+
+        // Build chart data: one point per purchase
+        const chartData = itemRecords
+          .sort((a, b) => a.record.purchase_date.localeCompare(b.record.purchase_date))
+          .map((r) => {
+            const price = r.record.price_per_unit
+              ? parseFloat(r.record.price_per_unit)
+              : r.record.total_paid
+              ? parseFloat(r.record.total_paid) / (r.record.quantity ?? 1)
+              : 0
+
+            return {
+              date: new Date(r.record.purchase_date).toLocaleDateString('en-US', {
+                month: 'short',
+                year: '2-digit',
+              }),
+              [r.source_name ?? 'Unknown']: price,
+              _raw: price,
+            }
+          })
+
+        const prices = itemRecords
+          .map((r) => r.record.price_per_unit
+            ? parseFloat(r.record.price_per_unit)
+            : r.record.total_paid
+            ? parseFloat(r.record.total_paid) / (r.record.quantity ?? 1)
+            : 0)
+          .filter((n) => n > 0)
+
+        const lowest  = Math.min(...prices)
+        const highest = Math.max(...prices)
+        const avg     = prices.reduce((s, n) => s + n, 0) / prices.length
+        const last    = prices[prices.length - 1]
+
+        return (
+          <div key={itemId} className="card">
+            <p className="text-md font-semibold text-ink-primary mb-3">{title}</p>
+
+            <ResponsiveContainer width="100%" height={160}>
+              <LineChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 10, fill: '#4a5a7a' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 10, fill: '#4a5a7a' }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v) => `$${v.toFixed(2)}`}
+                  width={48}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: '#151e30',
+                    border: '1px solid #1e2a3e',
+                    borderRadius: 8,
+                    fontSize: 11,
+                    color: '#cdd6f4',
+                  }}
+                  formatter={(value) => [`${currency} ${Number(value).toFixed(2)}`, '']}
+                />
+                {sources.length > 1 && (
+                  <Legend wrapperStyle={{ fontSize: 10, color: '#8896b8' }} />
+                )}
+                {sources.map((src, i) => (
+                  <Line
+                    key={src}
+                    type="monotone"
+                    dataKey={src}
+                    stroke={SOURCE_COLORS[i % SOURCE_COLORS.length]}
+                    strokeWidth={2}
+                    dot={{ r: 3, fill: SOURCE_COLORS[i % SOURCE_COLORS.length] }}
+                    connectNulls
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+
+            {/* Summary row */}
+            <div className="flex flex-wrap gap-4 mt-3 pt-3 border-t border-border text-xs font-mono">
+              <span className="text-success">Low: {currency} {lowest.toFixed(2)}</span>
+              <span className="text-danger">High: {currency} {highest.toFixed(2)}</span>
+              <span className="text-ink-secondary">Avg: {currency} {avg.toFixed(2)}</span>
+              <span className="text-ink-primary">Last: {currency} {last.toFixed(2)}</span>
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -272,18 +413,22 @@ function AddPurchaseModal({ onClose }: { onClose: () => void }) {
 
 // ── Page ──────────────────────────────────────────────────────
 
+type TabId = 'timeline' | 'history'
+
 export default function PurchasesPage() {
   const { data: purchases = [], isLoading } = usePurchases()
   const [typeFilter, setTypeFilter] = useState('all')
   const [showAdd, setShowAdd]       = useState(false)
+  const [tab, setTab]               = useState<TabId>('timeline')
 
   const filtered = typeFilter === 'all'
     ? purchases
     : purchases.filter((p) => p.record.item_type === typeFilter)
 
-  // Total spend
   const totalSpend = purchases
     .reduce((acc, p) => acc + parseFloat(p.record.total_paid ?? p.record.price_per_unit ?? '0'), 0)
+
+  const currency = purchases[0]?.record.currency ?? 'USD'
 
   return (
     <AppShell title="Purchases">
@@ -293,7 +438,7 @@ export default function PurchasesPage() {
           <h1 className="text-lg font-bold text-ink-primary">Purchase History</h1>
           <p className="text-xs text-ink-tertiary mt-0.5">
             {purchases.length} records · total{' '}
-            <span className="font-mono">USD {totalSpend.toFixed(2)}</span>
+            <span className="font-mono">{currency} {totalSpend.toFixed(2)}</span>
           </p>
         </div>
         <button className="btn-primary" onClick={() => setShowAdd(true)}>
@@ -301,54 +446,82 @@ export default function PurchasesPage() {
         </button>
       </div>
 
-      {/* Type filter tabs */}
-      <div className="flex gap-1 mb-4 flex-wrap">
-        {ITEM_TYPES.map((t) => {
-          const count = t.value === 'all'
-            ? purchases.length
-            : purchases.filter((p) => p.record.item_type === t.value).length
-          if (count === 0 && t.value !== 'all') return null
-          return (
-            <button
-              key={t.value}
-              onClick={() => setTypeFilter(t.value)}
-              className={[
-                'px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors',
-                typeFilter === t.value
-                  ? 'bg-accent-subtle border-accent text-accent'
-                  : 'bg-elevated border-border text-ink-secondary hover:border-border-strong',
-              ].join(' ')}
-            >
-              {t.label}
-              {count > 0 && <span className="ml-1 text-ink-tertiary">({count})</span>}
-            </button>
-          )
-        })}
+      {/* Tab switcher */}
+      <div className="flex gap-1 mb-4 border-b border-border pb-3">
+        {[
+          { id: 'timeline' as TabId, label: 'Timeline', icon: IconList },
+          { id: 'history'  as TabId, label: 'Price history', icon: IconChartLine },
+        ].map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setTab(id)}
+            className={[
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors',
+              tab === id
+                ? 'bg-accent-subtle text-accent border border-accent'
+                : 'text-ink-secondary hover:bg-elevated border border-transparent',
+            ].join(' ')}
+          >
+            <Icon size={13} /> {label}
+          </button>
+        ))}
       </div>
 
-      {/* Timeline */}
-      {isLoading && (
-        <div className="card animate-pulse">
-          <div className="h-48 bg-elevated rounded-md" />
-        </div>
+      {tab === 'timeline' && (
+        <>
+          {/* Type filter tabs */}
+          <div className="flex gap-1 mb-4 flex-wrap">
+            {ITEM_TYPES.map((t) => {
+              const count = t.value === 'all'
+                ? purchases.length
+                : purchases.filter((p) => p.record.item_type === t.value).length
+              if (count === 0 && t.value !== 'all') return null
+              return (
+                <button
+                  key={t.value}
+                  onClick={() => setTypeFilter(t.value)}
+                  className={[
+                    'px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors',
+                    typeFilter === t.value
+                      ? 'bg-accent-subtle border-accent text-accent'
+                      : 'bg-elevated border-border text-ink-secondary hover:border-border-strong',
+                  ].join(' ')}
+                >
+                  {t.label}
+                  {count > 0 && <span className="ml-1 text-ink-tertiary">({count})</span>}
+                </button>
+              )
+            })}
+          </div>
+
+          {isLoading && (
+            <div className="card animate-pulse">
+              <div className="h-48 bg-elevated rounded-md" />
+            </div>
+          )}
+
+          {!isLoading && filtered.length === 0 && (
+            <div className="card text-center py-12">
+              <IconShoppingCart size={32} className="text-ink-tertiary mx-auto mb-3" stroke={1} />
+              <p className="text-ink-secondary text-md font-medium">No purchases yet</p>
+              <p className="text-ink-tertiary text-xs mt-1">
+                Log purchases to track spending and build price history.
+              </p>
+            </div>
+          )}
+
+          {!isLoading && filtered.length > 0 && (
+            <div className="card">
+              {filtered.map((entry) => (
+                <PurchaseRow key={entry.record.id} entry={entry} />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
-      {!isLoading && filtered.length === 0 && (
-        <div className="card text-center py-12">
-          <IconShoppingCart size={32} className="text-ink-tertiary mx-auto mb-3" stroke={1} />
-          <p className="text-ink-secondary text-md font-medium">No purchases yet</p>
-          <p className="text-ink-tertiary text-xs mt-1">
-            Log purchases to track spending and build price history.
-          </p>
-        </div>
-      )}
-
-      {!isLoading && filtered.length > 0 && (
-        <div className="card">
-          {filtered.map((entry) => (
-            <PurchaseRow key={entry.record.id} entry={entry} />
-          ))}
-        </div>
+      {tab === 'history' && (
+        <PriceHistoryChart records={purchases} currency={currency} />
       )}
 
       {showAdd && <AddPurchaseModal onClose={() => setShowAdd(false)} />}
