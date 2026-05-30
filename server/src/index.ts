@@ -25,10 +25,12 @@ app.get('/health', (c) => c.json({ ok: true }))
 export default app
 
 // ── Local dev server — not started on Vercel ──────────────────
+// Use .then() instead of top-level await so Vercel's bundler doesn't choke
 if (!process.env.VERCEL) {
-  const { serve } = await import('@hono/node-server')
-  const port = Number(process.env.PORT ?? 3000)
-  serve({ fetch: app.fetch, port }, () => {
-    console.log(`FilamentOS server running on http://localhost:${port}`)
+  import('@hono/node-server').then(({ serve }) => {
+    const port = Number(process.env.PORT ?? 3000)
+    serve({ fetch: app.fetch, port }, () => {
+      console.log(`FilamentOS server running on http://localhost:${port}`)
+    })
   })
 }
