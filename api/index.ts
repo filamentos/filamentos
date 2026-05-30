@@ -1,7 +1,7 @@
-import app from '../server/src/index'
+// This file is the Vercel serverless function entry point.
+// The server is pre-bundled by esbuild (see root package.json build script)
+// into api/_server.bundle.js — a single, self-contained ESM file.
+import app from './_server.bundle.js'
 
-// Vercel Node.js runtime — export app.fetch directly.
-// Node.js 20+ supports Web API Request/Response natively,
-// so no adapter wrapper is needed.
 export const config = { maxDuration: 30 }
 export default app.fetch
