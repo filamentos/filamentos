@@ -19,13 +19,18 @@ app.use(
 app.route('/api/auth', authRoutes)
 app.route('/api/filament', filamentRoutes)
 
-app.get('/health', (c) => c.json({ ok: true }))
+app.get('/health', (c) => c.json({ ok: true, env: !!process.env.DATABASE_URL }))
 
-// ── Export for Vercel (api/index.ts imports this) ─────────────
+// ── Global error handler — logs the real cause to Vercel function logs ──
+app.onError((err, c) => {
+  console.error('[FilamentOS]', err.message, '\n', err.stack)
+  return c.json({ error: err.message }, 500)
+})
+
+// ── Export for Vercel ─────────────────────────────────────────
 export default app
 
-// ── Local dev server — not started on Vercel ──────────────────
-// Use .then() instead of top-level await so Vercel's bundler doesn't choke
+// ── Local dev server ──────────────────────────────────────────
 if (!process.env.VERCEL) {
   import('@hono/node-server').then(({ serve }) => {
     const port = Number(process.env.PORT ?? 3000)
