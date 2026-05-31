@@ -15,6 +15,13 @@
       "when": 1780168298252,
       "tag": "0001_lowly_slipstream",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780203671144,
+      "tag": "0002_hard_mister_fear",
+      "breakpoints": true
     }
   ]
 }
