@@ -8,6 +8,7 @@ import {
   workshopItems,
   spools,
   filamentProfiles,
+  savedProjects,
 } from '../db/schema'
 import { requireAuth } from '../lib/session'
 import { ok, err } from '../lib/response'
@@ -170,7 +171,31 @@ quoteRoutes.get('/:id', async (c) => {
   const totals = calculateTotals(lineItems, quote.batch_quantity, settings ?? null)
   const tips = beginnerTips(quote, lineItems, settings ?? null)
 
-  return ok(c, { quote, lineItems, totals, tips })
+  // ── Commercial license check on linked project ──
+  let licenseWarning: { license: string; commercial_ok: boolean | null; platform: string } | null = null
+  if (quote.saved_project_id) {
+    const [linked] = await db
+      .select()
+      .from(savedProjects)
+      .where(eq(savedProjects.id, quote.saved_project_id))
+
+    if (linked?.notes) {
+      try {
+        const info = JSON.parse(linked.notes)
+        if (typeof info.license === 'string' && info.commercial_ok === false) {
+          licenseWarning = {
+            license: info.license,
+            commercial_ok: info.commercial_ok,
+            platform: linked.source_platform,
+          }
+        }
+      } catch {
+        // notes wasn't license JSON — ignore
+      }
+    }
+  }
+
+  return ok(c, { quote, lineItems, totals, tips, licenseWarning })
 })
 
 // ── Update quote ──────────────────────────────────────────────

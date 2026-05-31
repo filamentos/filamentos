@@ -458,3 +458,14 @@ export const userQuoteSettings = pgTable('user_quote_settings', {
   default_packaging_cost: numeric('default_packaging_cost', { precision: 8, scale: 2 }).default('0'),
   updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 })
+
+// ── Parse Usage (rate limiting for AI project parsing) ─────────
+
+export const parseUsage = pgTable('parse_usage', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  user_id: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  usage_date: date('usage_date').notNull(),
+  parse_count: integer('parse_count').default(0).notNull(),
+})
