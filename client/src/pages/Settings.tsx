@@ -28,16 +28,16 @@ interface QuoteSettings {
 
 function useQuoteSettings() {
   return useQuery({
-    queryKey: ['quote-settings'],
-    queryFn: () => api.get<QuoteSettings>('/quotes/settings'),
+    queryKey: ['cost-settings'],
+    queryFn: () => api.get<QuoteSettings>('/settings'),
   })
 }
 
 function useUpdateQuoteSettings() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: Record<string, unknown>) => api.patch('/quotes/settings', data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['quote-settings'] }),
+    mutationFn: (data: Record<string, unknown>) => api.patch('/settings', data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['cost-settings'] }),
   })
 }
 
@@ -134,7 +134,7 @@ function QuoteSettingsSection() {
   if (isLoading) {
     return (
       <div className="card mb-4">
-        <SectionHeading icon={IconReceipt} title="Quote settings" />
+        <SectionHeading icon={IconReceipt} title="Cost & pricing settings" />
         <div className="animate-pulse space-y-2">
           {[1, 2, 3].map((n) => <div key={n} className="h-8 bg-elevated rounded-md" />)}
         </div>
@@ -144,7 +144,8 @@ function QuoteSettingsSection() {
 
   return (
     <div className="card mb-4">
-      <SectionHeading icon={IconReceipt} title="Quote settings" />
+      <SectionHeading icon={IconReceipt} title="Cost & pricing settings" />
+      <p className="text-xs text-ink-tertiary mb-4 -mt-2">Applies to every project's cost calculation.</p>
       <form onSubmit={handleSave} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -193,9 +194,8 @@ function QuoteSettingsSection() {
 
         <div className="flex flex-col gap-2">
           {[
-            { key: 'include_electricity', label: 'Include electricity in quotes' },
-            { key: 'include_labor',       label: 'Include labor in quotes' },
-            { key: 'include_wear_costs',  label: 'Include nozzle/plate wear in quotes' },
+            { key: 'include_electricity', label: 'Include electricity in cost' },
+            { key: 'include_labor',       label: 'Include labor in cost' },
           ].map(({ key, label }) => (
             <label key={key} className="flex items-center gap-2 cursor-pointer">
               <input

@@ -11,6 +11,7 @@ import {
   printers,
   purchaseRecords,
   userQuoteSettings,
+  spools,
 } from '../db/schema'
 import { requireAuth } from '../lib/session'
 import { ok, err } from '../lib/response'
@@ -280,7 +281,6 @@ async function buildProjectDetail(userId: string, project: ProjectRow) {
 
 /** sum of remaining filament grams across active spools of a profile */
 async function activeFilamentGrams(profileId: string): Promise<number> {
-  const { spools } = await import('../db/schema')
   const [profile] = await db.select().from(filamentProfiles).where(eq(filamentProfiles.id, profileId))
   const empty = num(profile?.empty_spool_weight_g)
   const rows = await db

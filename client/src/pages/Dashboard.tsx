@@ -8,7 +8,6 @@ import {
   IconChevronRight,
   IconPackage,
   IconFile3d,
-  IconReceipt,
   IconWeight,
   IconChartBar,
 } from '@tabler/icons-react'
@@ -511,8 +510,7 @@ export default function Dashboard() {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
-            <StatCard label="Projects"    value="—" icon={IconFile3d}       to="/projects"  sub="Saved designs" />
-            <StatCard label="Quotes"      value="—" icon={IconReceipt}      to="/quotes"    sub="Pricing calculator" />
+            <StatCard label="Projects"    value="—" icon={IconFile3d}       to="/projects"  sub="Cost & price your prints" />
             <StatCard label="Purchases"   value="—" icon={IconShoppingCart} to="/purchases" sub="Spend history" />
             <StatCard
               label="Active alerts"

@@ -1192,24 +1192,23 @@ Common M2/M3/M4 screw kits with known contents by SKU
 - [x] License check — CC license parsed → stored in saved_projects.notes, badge on card (Commercial OK / Personal only / Unknown), red warning strip in quote UI when commercial_ok: false
 - [x] @anthropic-ai/sdk installed, ANTHROPIC_API_KEY documented
 
-**⚠️ ACTION ITEM: Add ANTHROPIC_API_KEY to Vercel env vars** — parser returns empty component list in production without it (logs warning, still updates metadata + license, just finds no parts)
+**⚠️ SUPERSEDED by Phase 4.5** — URL parsing and the affiliate/quote system below were removed in the Projects/Quotes merge. Kept here for history.
 
-**🎉 FULL LOOP LIVE: paste MakerWorld URL → AI parses → inventory check → buy links → create quote → price batch → sell**
-
-### Phase 4.5 — Projects/Quotes merge + remove parsing 🔧 IN PROGRESS
+### Phase 4.5 — Projects/Quotes merge + remove parsing ✅ COMPLETE
 
 Major structural refactor based on real usage feedback:
-- [ ] Remove URL parsing entirely (projectParser, componentExtractor, affiliate builder, parse routes, parse_usage + project_components tables, Anthropic parsing dependency). Reason: MakerWorld/Cloudflare blocked it — only 1 of 4 sites allowed parsing, not worth maintaining.
-- [ ] Merge Projects + Quotes into one unified `projects` table + page (drop quote_projects, quote_line_items, saved_projects)
-- [ ] New nested structure: project_plates → project_plate_colors (filament + grams) → project_parts (workshop items)
-- [ ] Plate→color model: each plate has 1+ colors, each color maps to inventory filament + grams per unit. Grows dynamically (add plates, add colors per plate)
-- [ ] Print time toggle: per_unit (multiplies linearly) OR per_plate (units_per_plate + full_plate_time + user-entered partial_plate_time from slicer when batch doesn't divide evenly)
-- [ ] Printer selector — only shown if user has 2+ printers; auto-uses the single printer otherwise (for electricity wattage)
-- [ ] Always-on cost-to-print panel on every project (filament + parts + electricity + labor), per-unit AND batch
-- [ ] Collapsible selling section: batch qty, venue, event date, packaging, table fee, platform fee %, pricing tiers, post-event tracking
-- [ ] projectCost.ts cost engine reads plates/colors/parts
-- [ ] Remove Quotes from sidebar nav — Projects covers everything
-- [ ] Cost & pricing settings (electricity rate, labor rate, markup, venue) in Settings
+- [x] Removed URL parsing entirely — deleted projectParser.ts, componentExtractor.ts, affiliate.ts, quoteCalculator.ts, quotes route; dropped parse_usage + project_components tables; removed @anthropic-ai/sdk dependency. (ANTHROPIC_API_KEY kept in .env.example but unused.) Reason: MakerWorld/Cloudflare blocked it — only 1 of 4 sites allowed parsing.
+- [x] Merged Projects + Quotes into one unified `projects` table + page (dropped quote_projects, quote_line_items, saved_projects)
+- [x] New nested structure: project_plates → project_plate_colors (filament + grams) → project_parts (workshop items)
+- [x] Plate→color model: each plate has 1+ colors, each color maps to inventory filament + grams. Grows dynamically (add/remove plates, add/remove colors per plate)
+- [x] Print time toggle: per_unit (multiplies linearly) OR per_plate (units_per_plate + full_plate_time + user-entered partial_plate_time from slicer when batch doesn't divide evenly)
+- [x] Printer selector — only shown if user has 2+ printers; auto-assigns the single printer on create and shows "Printing on: [name]" as text
+- [x] Always-on cost-to-print panel on every project (filament + parts + electricity + labor + packaging), per-unit AND batch, with inventory shortfall check
+- [x] Collapsible selling section: batch qty, venue, event date, packaging, table fee, platform fee %, 4 pricing tiers, post-event tracking with sell-through advice + beginner tips
+- [x] server/src/lib/projectCost.ts — pure cost engine reading plates/colors/parts; tiers + sell-through + shortfalls
+- [x] Removed Quotes from sidebar nav + dashboard; /quotes redirects to /projects
+- [x] "Cost & pricing settings" section in Settings (electricity rate, wattage, labor rate, markup, venue, packaging) — now applies to all projects
+- [x] Migration 0003_unified_projects.sql applied directly via Supabase (drops + creates). Zero TypeScript errors; full build clean.
 
 ### Phase 5 — SaaS launch
 - [ ] Remove allowlist → open signups
