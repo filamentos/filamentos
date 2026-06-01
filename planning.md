@@ -1,5 +1,5 @@
 # FilamentOS — Technical Specification
-**Version 1.1 | Build Brief for Claude Code**
+**Version 2.1 | Build Brief for Claude Code**
 
 > FilamentOS is a hosted web app for 3D printer makers to manage filament inventory, printer setups, spare parts, workshop consumables, print kits, project requirements, and product pricing — with smart purchase tracking, price history, affiliate-linked buy recommendations, and a smart quote engine for makers who sell their prints.
 > The name works in English (Filament + OS = operating system for your print shop) and Spanish (filamentos = filaments), targeting both English and Spanish-speaking maker communities.
@@ -453,38 +453,71 @@ kit_components (
 
 ### Saved Projects
 
+> **MERGED in v2.1:** Projects and Quotes are now ONE unified feature. A project always shows
+> its cost-to-print, and the selling/pricing details live in a collapsible section on the same
+> record. URL parsing was removed entirely (MakerWorld/Cloudflare blocked it; only 1 of 4 sites
+> allowed it — not worth maintaining). The old `saved_projects`, `project_components`,
+> `quote_projects`, and `quote_line_items` tables are replaced by the structure below.
+
 ```sql
--- Saved MakerWorld / Printables projects
-saved_projects (
+-- Unified projects (replaces saved_projects + quote_projects)
+projects (
   id uuid PK,
   user_id uuid REFERENCES users(id) ON DELETE CASCADE,
-  source_platform text NOT NULL,    -- makerworld | printables | thingiverse | cults3d | other
-  source_url text NOT NULL,
-  project_title text,
-  designer_name text,
-  parsed_at timestamptz,
-  raw_description text,             -- cached for re-parsing
+  -- Identity
+  project_url text,
+  platform text,                    -- makerworld | printables | thingiverse | cults3d | other
   status text DEFAULT 'want_to_print', -- want_to_print | printing | completed
+  title text NOT NULL,
+  designer text,
+  -- Printer (nullable; auto-set if user has exactly 1 printer)
+  printer_id uuid REFERENCES printers(id),
+  -- Print time
+  time_mode text DEFAULT 'per_unit', -- per_unit | per_plate
+  print_time_min_per_unit numeric(8,1),     -- used when time_mode = per_unit
+  units_per_plate integer,                  -- used when time_mode = per_plate
+  full_plate_time_min numeric(8,1),         -- time for one full plate
+  partial_plate_time_min numeric(8,1),      -- user-entered from slicer when batch doesn't divide evenly
+  -- Assembly
+  assembly_time_min_per_unit numeric(8,1) DEFAULT 0,
+  -- Selling section (optional)
+  batch_quantity integer DEFAULT 1,
+  venue text,                       -- farmers_market | etsy | local | convention | other
+  event_date date,
+  packaging_cost_per_unit numeric(8,2) DEFAULT 0,
+  table_fee numeric(8,2) DEFAULT 0,
+  platform_fee_pct numeric(5,2) DEFAULT 0,
+  target_price numeric(8,2),
+  units_sold integer,
+  actual_revenue numeric(10,2),
   notes text,
   created_at timestamptz DEFAULT now()
 )
 
--- Parsed components from project pages
-project_components (
+-- Plates within a project (Owl Lamp = 2 plates: "Body", "Back")
+project_plates (
   id uuid PK,
-  project_id uuid REFERENCES saved_projects(id) ON DELETE CASCADE,
-  component_name text NOT NULL,
-  component_type text,              -- filament | hardware | electronic | bambu_sku | unknown
-  bambu_sku text,                   -- MH001, KC007, etc.
-  qty_required numeric(10,2),
-  inventory_item_id uuid,           -- polymorphic match to workshop_item or filament_profile
-  inventory_item_type text,         -- workshop_item | filament_profile | null
-  inventory_status text,            -- have_it | low | missing | untracked
-  affiliate_amazon_url text,
-  affiliate_bambu_url text,
-  affiliate_ali_url text,
-  user_confirmed bool DEFAULT false, -- did user confirm this parse is correct?
-  notes text
+  project_id uuid REFERENCES projects(id) ON DELETE CASCADE,
+  plate_number integer NOT NULL,
+  plate_name text,                  -- "Body", "Back", etc.
+  sort_order integer DEFAULT 0
+)
+
+-- Colors within a plate, each maps to a filament + grams (per single unit)
+project_plate_colors (
+  id uuid PK,
+  plate_id uuid REFERENCES project_plates(id) ON DELETE CASCADE,
+  color_label text,                 -- "Black", "White", etc.
+  filament_profile_id uuid REFERENCES filament_profiles(id),
+  grams_used numeric(6,1) NOT NULL  -- grams of this color per single unit
+)
+
+-- Non-filament parts a project needs (per single unit)
+project_parts (
+  id uuid PK,
+  project_id uuid REFERENCES projects(id) ON DELETE CASCADE,
+  workshop_item_id uuid REFERENCES workshop_items(id),
+  quantity_per_unit numeric(10,2) NOT NULL
 )
 ```
 
@@ -818,11 +851,53 @@ Every page with affiliate links shows:
 
 ---
 
-## 11. Smart Quote Engine
+## 11. Smart Quote Engine → MERGED INTO PROJECTS (v2.1)
+
+> **⚠️ ARCHITECTURE CHANGE (v2.1):** The quote engine is no longer a separate feature. It has been
+> merged directly into Projects (see the unified `projects` schema in Section 4). Every project now
+> automatically shows its cost-to-print, and the selling/pricing details (batch, venue, pricing
+> tiers, post-event tracking) live in a collapsible "selling" section on the same project record.
+> There is no separate Quotes page or sidebar item. The `quote_projects` and `quote_line_items`
+> tables are removed. The cost calculation logic below still applies — it now lives in
+> `server/src/lib/projectCost.ts` and reads from the project's plates/colors/parts.
+
+### Cost Calculation (now in projectCost.ts)
+
+Per-unit cost:
+```
+filament_cost = sum across all plates, all colors of:
+    color.grams_used × (filament_profile cost_per_gram from latest purchase)
+parts_cost = sum of: part.quantity_per_unit × part cost_per_unit
+
+total_print_time_min:
+  if time_mode = per_unit:
+    print_time_min_per_unit × batch_quantity
+  if time_mode = per_plate:
+    full_plates = floor(batch_quantity / units_per_plate)
+    remainder   = batch_quantity % units_per_plate
+    total = (full_plates × full_plate_time_min)
+          + (remainder > 0 ? partial_plate_time_min : 0)
+    -- partial_plate_time_min is entered by the user from their slicer
+
+electricity_cost = total_print_time_hrs × printer_wattage_kw × electricity_rate
+  -- printer_wattage from project.printer_id (auto-set if user has only 1 printer)
+labor_cost = ((total_print_time_min + assembly_time_min × batch_quantity) / 60) × labor_rate
+
+cost_to_print_one   = filament_cost + parts_cost + (electricity_cost + labor_cost) / batch_quantity
+cost_to_print_batch = (filament_cost + parts_cost) × batch_quantity + electricity_cost + labor_cost
+```
+
+Pricing tiers (shown only in the collapsible selling section): break_even (1×), fair (2×), market (3×), suggested (clean round-up). Plus packaging_cost_per_unit, table_fee (spread across batch), platform_fee_pct. Post-event tracking: units_sold + actual_revenue → sell-through % + advice.
+
+**Why per-plate matters:** print time doesn't scale linearly when multiple units fit on one plate (shared heat-up, single purge, travel moves). A piece that's 45 min solo might be 6h37m for 9-on-a-plate. The user enters the actual measured plate time from their slicer rather than the app guessing. Partial plates (when batch doesn't divide evenly) get their own user-entered slicer time.
+
+---
+
+### ARCHIVED — original separate quote schema (no longer used, kept for reference)
 
 The quote engine calculates the true cost to produce a batch of printed products, suggests selling prices across multiple tiers, checks if the user has enough inventory, and tracks actual sales after the event. Designed especially for beginners who want to start selling but don't know how to price their work.
 
-### Quote Schema
+### Quote Schema (ARCHIVED)
 
 ```sql
 -- Quote projects (one quote = one product + batch size)
@@ -1082,30 +1157,59 @@ Common M2/M3/M4 screw kits with known contents by SKU
 - [x] Purchases — timeline with type filter, total spend, price history endpoint
 - [x] Compatibility checker — checkCompatibility(printerId, profileId) → diameter, nozzle temp, enclosure, abrasive material, TPU/AMS rules. GET /api/printers/:id/compat/:profileId
 
-### Phase 3 — Kits, projects, reference data, quote engine
-- [ ] Print kits with component tracking
-- [ ] Saved projects (manual component entry)
-- [ ] Full reference database seed (materials, printer models, brands)
-- [ ] Printer model auto-fill on add
-- [ ] Price history charts
-- [ ] Spend dashboard
-- [ ] PWA config (installable on phone)
-- [ ] Mobile-optimized weight logging flow
-- [ ] **Smart quote engine** — user quote settings, quote builder wizard
-- [ ] **Quote cost breakdown** — filament, hardware, electricity, labor, wear, packaging
-- [ ] **Pricing tier display** — break-even, fair, market, suggested with beginner tips
-- [ ] **Batch inventory check** — stock sufficiency per line item
-- [ ] **Batch print optimizer** — units per plate, print runs, actual time
-- [ ] **Post-event tracker** — units sold, revenue, sell-through advice
-- [ ] **Commercial license warning** — shown when MakerWorld project linked to quote
+### Phase 3 — Kits, projects, reference data, quote engine ✅ COMPLETE — 26 files, 0 TypeScript errors
 
-### Phase 4 — Project URL parser
-- [ ] Server-side MakerWorld page fetch
-- [ ] Claude API integration for component extraction
-- [ ] Inventory readiness check per project
-- [ ] Affiliate link generation for missing items
-- [ ] Quote engine integration — "Create quote from this project" button
-- [ ] Printables support
+- [x] Material reference database — material_reference table, 19 materials seeded with accurate values, GET /api/materials + GET /api/materials/:material
+- [x] Material info panel in every expanded filament profile card — nozzle/bed ranges, drying req, enclosure badge, live moisture exposure warning from opened_date. Beginner view simplified, pro view shows density/tensile/heat resistance
+- [x] Print kits — full CRUD, POST /kits/:id/build (deducts workshop stock), readiness check, kit cards with green/red indicator, component checklist, Start/Complete build buttons
+- [x] Saved projects — CRUD routes + component management, platform badges (MakerWorld/Printables/Thingiverse), status selector, readiness score (e.g. "4/6 components ready")
+- [x] Price history charts — Recharts LineChart per item, one colored line per source, tooltip, lowest/highest/avg/last summary row
+- [x] Spend dashboard — new Spend tab: 3 KPI cards (all-time/this month/last month), stacked BarChart 6 months by category, PieChart by category, top 5 spend table
+- [x] PWA config — vite-plugin-pwa, NetworkFirst for /api/*, CacheFirst for static, F logo SVG icon, theme #0f1623, Install app button in Settings
+- [x] Mobile weight logging — thumb-friendly modal on Dashboard, 32px input, live filament remaining preview, Pre/Post/Just checking toggle, last 3 entries, 48px submit button
+- [x] Smart quote engine — full CRUD + line items + inventory check + POST /complete
+- [x] Quote cost calculator — filament, hardware, electricity, labor, nozzle wear, packaging, table fee all computed in quoteCalculator.ts
+- [x] Pricing tiers — break-even / fair (2×) / market (3×) / suggested (clean round-up)
+- [x] Beginner tips — labor $0 warning, table fee reminder, price below 2× cost alert, commercial license warning
+- [x] Post-event logger — units sold + revenue → sell-through % + profit + contextual advice
+- [x] Quote Settings — electricity rate, printer wattage, labor rate, default markup, default venue
+
+**Next steps before Phase 4:**
+- [ ] Run npm run db:migrate to add material_reference table
+- [ ] Run seed: npx tsx --env-file=../.env server/src/db/seed/materials.ts
+- [ ] Push to GitHub → Vercel auto-deploys
+- [ ] Verify PWA installable on phone
+
+### Phase 4 — Project URL parser ✅ COMPLETE — 8 tasks, TypeScript-clean, live
+
+- [x] Affiliate URL builder — server/src/lib/affiliate.ts, Amazon/Bambu/AliExpress builders, tags from env (empty for now, links work regardless)
+- [x] Page fetcher — server/src/lib/projectParser.ts, browser-header fetch, platform auto-detect (MakerWorld/Printables/Thingiverse/Cults3D), og:meta + title + HTML-strip + CC license detection
+- [x] Component extractor — server/src/lib/componentExtractor.ts, claude-haiku-4-5, JSON-only parse, never throws, capped at 20
+- [x] Parser route — POST /:id/parse + /:id/reparse, fuzzy inventory matching → have_it/low/missing, affiliate links stored, PATCH confirm endpoint
+- [x] Rate limit — 10 parses/user/day via parse_usage table, friendly 429 "Daily parse limit reached — resets tomorrow", counts only successful fetches
+- [x] Projects UI — Parse/Re-parse button with loading state, component rows (type badge · status badge · buy links), readiness progress bar, per-row + Confirm-all, prefilled Add-to-inventory modal, FTC affiliate disclosure
+- [x] Quote integration — POST /quotes/from-project/:projectId pre-populates line items from matched inventory, "Create quote" button → auto-expands quote
+- [x] License check — CC license parsed → stored in saved_projects.notes, badge on card (Commercial OK / Personal only / Unknown), red warning strip in quote UI when commercial_ok: false
+- [x] @anthropic-ai/sdk installed, ANTHROPIC_API_KEY documented
+
+**⚠️ ACTION ITEM: Add ANTHROPIC_API_KEY to Vercel env vars** — parser returns empty component list in production without it (logs warning, still updates metadata + license, just finds no parts)
+
+**🎉 FULL LOOP LIVE: paste MakerWorld URL → AI parses → inventory check → buy links → create quote → price batch → sell**
+
+### Phase 4.5 — Projects/Quotes merge + remove parsing 🔧 IN PROGRESS
+
+Major structural refactor based on real usage feedback:
+- [ ] Remove URL parsing entirely (projectParser, componentExtractor, affiliate builder, parse routes, parse_usage + project_components tables, Anthropic parsing dependency). Reason: MakerWorld/Cloudflare blocked it — only 1 of 4 sites allowed parsing, not worth maintaining.
+- [ ] Merge Projects + Quotes into one unified `projects` table + page (drop quote_projects, quote_line_items, saved_projects)
+- [ ] New nested structure: project_plates → project_plate_colors (filament + grams) → project_parts (workshop items)
+- [ ] Plate→color model: each plate has 1+ colors, each color maps to inventory filament + grams per unit. Grows dynamically (add plates, add colors per plate)
+- [ ] Print time toggle: per_unit (multiplies linearly) OR per_plate (units_per_plate + full_plate_time + user-entered partial_plate_time from slicer when batch doesn't divide evenly)
+- [ ] Printer selector — only shown if user has 2+ printers; auto-uses the single printer otherwise (for electricity wattage)
+- [ ] Always-on cost-to-print panel on every project (filament + parts + electricity + labor), per-unit AND batch
+- [ ] Collapsible selling section: batch qty, venue, event date, packaging, table fee, platform fee %, pricing tiers, post-event tracking
+- [ ] projectCost.ts cost engine reads plates/colors/parts
+- [ ] Remove Quotes from sidebar nav — Projects covers everything
+- [ ] Cost & pricing settings (electricity rate, labor rate, markup, venue) in Settings
 
 ### Phase 5 — SaaS launch
 - [ ] Remove allowlist → open signups

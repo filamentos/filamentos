@@ -346,41 +346,75 @@ export const kitComponents = pgTable('kit_components', {
   notes: text('notes'),
 })
 
-// ── Saved Projects ────────────────────────────────────────────
+// ── Projects (unified: design + cost + selling) ───────────────
 
-export const savedProjects = pgTable('saved_projects', {
+export const projects = pgTable('projects', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   user_id: uuid('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
-  source_platform: text('source_platform').notNull(),
-  source_url: text('source_url').notNull(),
-  project_title: text('project_title'),
-  designer_name: text('designer_name'),
-  parsed_at: timestamp('parsed_at', { withTimezone: true }),
-  raw_description: text('raw_description'),
-  status: text('status').default('want_to_print').notNull(),
+
+  // Identity
+  project_url: text('project_url'),
+  platform: text('platform').default('other').notNull(), // makerworld | printables | thingiverse | cults3d | other
+  status: text('status').default('want_to_print').notNull(), // want_to_print | printing | completed
+  title: text('title'),
+  designer: text('designer'),
+
+  // Printer
+  printer_id: uuid('printer_id').references(() => printers.id, { onDelete: 'set null' }),
+
+  // Print time
+  time_mode: text('time_mode').default('per_unit').notNull(), // per_unit | per_plate
+  print_time_min_per_unit: numeric('print_time_min_per_unit', { precision: 8, scale: 1 }),
+  units_per_plate: integer('units_per_plate'),
+  full_plate_time_min: numeric('full_plate_time_min', { precision: 8, scale: 1 }),
+  partial_plate_time_min: numeric('partial_plate_time_min', { precision: 8, scale: 1 }),
+
+  // Assembly
+  assembly_time_min_per_unit: numeric('assembly_time_min_per_unit', { precision: 8, scale: 1 }),
+
+  // Selling
+  batch_quantity: integer('batch_quantity').default(1).notNull(),
+  venue: text('venue').default('other').notNull(), // farmers_market | etsy | local | convention | other
+  event_date: date('event_date'),
+  packaging_cost_per_unit: numeric('packaging_cost_per_unit', { precision: 8, scale: 2 }).default('0'),
+  table_fee: numeric('table_fee', { precision: 8, scale: 2 }).default('0'),
+  platform_fee_pct: numeric('platform_fee_pct', { precision: 5, scale: 2 }).default('0'),
+  target_price: numeric('target_price', { precision: 8, scale: 2 }),
+  units_sold: integer('units_sold'),
+  actual_revenue: numeric('actual_revenue', { precision: 10, scale: 2 }),
+
   notes: text('notes'),
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
 })
 
-export const projectComponents = pgTable('project_components', {
+export const projectPlates = pgTable('project_plates', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   project_id: uuid('project_id')
     .notNull()
-    .references(() => savedProjects.id, { onDelete: 'cascade' }),
-  component_name: text('component_name').notNull(),
-  component_type: text('component_type'),
-  bambu_sku: text('bambu_sku'),
-  qty_required: numeric('qty_required', { precision: 10, scale: 2 }),
-  inventory_item_id: uuid('inventory_item_id'),
-  inventory_item_type: text('inventory_item_type'),
-  inventory_status: text('inventory_status'),
-  affiliate_amazon_url: text('affiliate_amazon_url'),
-  affiliate_bambu_url: text('affiliate_bambu_url'),
-  affiliate_ali_url: text('affiliate_ali_url'),
-  user_confirmed: boolean('user_confirmed').default(false),
-  notes: text('notes'),
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  plate_number: integer('plate_number').default(1).notNull(),
+  plate_name: text('plate_name'),
+})
+
+export const projectPlateColors = pgTable('project_plate_colors', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  plate_id: uuid('plate_id')
+    .notNull()
+    .references(() => projectPlates.id, { onDelete: 'cascade' }),
+  color_label: text('color_label'),
+  filament_profile_id: uuid('filament_profile_id').references(() => filamentProfiles.id, { onDelete: 'set null' }),
+  grams_used: numeric('grams_used', { precision: 8, scale: 1 }).default('0').notNull(),
+})
+
+export const projectParts = pgTable('project_parts', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  project_id: uuid('project_id')
+    .notNull()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  workshop_item_id: uuid('workshop_item_id').references(() => workshopItems.id, { onDelete: 'set null' }),
+  quantity_per_unit: numeric('quantity_per_unit', { precision: 10, scale: 2 }).default('1').notNull(),
 })
 
 // ── Alerts ────────────────────────────────────────────────────
@@ -401,47 +435,7 @@ export const alerts = pgTable('alerts', {
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
 })
 
-// ── Quote Engine ──────────────────────────────────────────────
-
-export const quoteProjects = pgTable('quote_projects', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-  user_id: uuid('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  saved_project_id: uuid('saved_project_id').references(() => savedProjects.id),
-  name: text('name').notNull(),
-  batch_quantity: integer('batch_quantity').default(1).notNull(),
-  print_time_min: numeric('print_time_min', { precision: 8, scale: 1 }),
-  assembly_time_min: numeric('assembly_time_min', { precision: 8, scale: 1 }),
-  packaging_cost: numeric('packaging_cost', { precision: 8, scale: 2 }).default('0'),
-  platform_fee_pct: numeric('platform_fee_pct', { precision: 5, scale: 2 }).default('0'),
-  table_fee: numeric('table_fee', { precision: 8, scale: 2 }).default('0'),
-  selling_venue: text('selling_venue').default('other').notNull(),
-  target_price: numeric('target_price', { precision: 8, scale: 2 }),
-  status: text('status').default('draft').notNull(),
-  units_sold: integer('units_sold'),
-  actual_revenue: numeric('actual_revenue', { precision: 10, scale: 2 }),
-  event_date: date('event_date'),
-  notes: text('notes'),
-  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
-})
-
-export const quoteLineItems = pgTable('quote_line_items', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-  quote_id: uuid('quote_id')
-    .notNull()
-    .references(() => quoteProjects.id, { onDelete: 'cascade' }),
-  item_type: text('item_type').notNull(),
-  item_ref_id: uuid('item_ref_id'),
-  item_ref_type: text('item_ref_type'),
-  description: text('description').notNull(),
-  qty_per_unit: numeric('qty_per_unit', { precision: 10, scale: 3 }),
-  unit_label: text('unit_label'),
-  cost_per_unit_item: numeric('cost_per_unit_item', { precision: 10, scale: 4 }),
-  line_cost_per_unit: numeric('line_cost_per_unit', { precision: 10, scale: 4 }),
-  is_from_inventory: boolean('is_from_inventory').default(true),
-  sort_order: integer('sort_order').default(0),
-})
+// ── Cost & Pricing Settings (applies to all projects) ─────────
 
 export const userQuoteSettings = pgTable('user_quote_settings', {
   user_id: uuid('user_id')
@@ -457,15 +451,4 @@ export const userQuoteSettings = pgTable('user_quote_settings', {
   default_venue: text('default_venue').default('farmers_market'),
   default_packaging_cost: numeric('default_packaging_cost', { precision: 8, scale: 2 }).default('0'),
   updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-})
-
-// ── Parse Usage (rate limiting for AI project parsing) ─────────
-
-export const parseUsage = pgTable('parse_usage', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-  user_id: uuid('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  usage_date: date('usage_date').notNull(),
-  parse_count: integer('parse_count').default(0).notNull(),
 })

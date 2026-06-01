@@ -12,7 +12,7 @@ import purchaseRoutes from './routes/purchases'
 import materialRoutes from './routes/materials'
 import kitRoutes from './routes/kits'
 import projectRoutes from './routes/projects'
-import quoteRoutes from './routes/quotes'
+import settingsRoutes from './routes/settings'
 
 const app = new Hono()
 
@@ -35,7 +35,7 @@ app.route('/api/purchases', purchaseRoutes)
 app.route('/api/materials', materialRoutes)
 app.route('/api/kits', kitRoutes)
 app.route('/api/projects', projectRoutes)
-app.route('/api/quotes', quoteRoutes)
+app.route('/api/settings', settingsRoutes)
 
 app.get('/health', (c) => c.json({ ok: true, env: !!process.env.DATABASE_URL }))
 

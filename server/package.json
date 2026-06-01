@@ -12,7 +12,6 @@
     "db:seed": "tsx src/db/seed/index.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.100.1",
     "@filamentos/shared": "*",
     "@hono/node-server": "^1.13.2",
     "dotenv": "^16.4.5",
