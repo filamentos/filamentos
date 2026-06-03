@@ -85,6 +85,15 @@ interface PartOut {
   unit: string | null
   available: number
 }
+interface FilamentProfileUsage {
+  profile_id: string
+  label: string
+  needed: number
+  current_stock: number
+  remaining_after: number
+  low_threshold: number
+  status: 'ok' | 'low_after' | 'order_now'
+}
 
 /** Assemble the full project payload: nested data + cost + tiers + inventory + tips */
 async function buildProjectDetail(userId: string, project: ProjectRow) {
@@ -234,21 +243,53 @@ async function buildProjectDetail(userId: string, project: ProjectRow) {
     project.target_price != null ? num(project.target_price) : null,
   )
 
-  // Filament shortfalls — filamentNeed already totals grams × each plate's batch
+  // ── Filament usage: total grams + forward-looking by-profile stock status ──
+  // filamentNeed already totals grams × each plate's batch, summed per profile.
+  let totalFilamentG = 0
+  const filamentByProfile: FilamentProfileUsage[] = []
+
   for (const [profileId, need] of filamentNeed) {
-    const neededGrams = need.grams
-    const available = await activeFilamentGrams(profileId)
-    if (neededGrams > available) {
+    const neededGrams = Math.round(need.grams * 10) / 10
+    totalFilamentG += need.grams
+
+    const [profile] = await db
+      .select({ low: filamentProfiles.low_gram_threshold_g })
+      .from(filamentProfiles)
+      .where(eq(filamentProfiles.id, profileId))
+    const lowThreshold = num(profile?.low ?? '0')
+    const currentStock = Math.round((await activeFilamentGrams(profileId)) * 10) / 10
+    const remainingAfter = Math.round((currentStock - neededGrams) * 10) / 10
+
+    let status: FilamentProfileUsage['status'] = 'ok'
+    if (remainingAfter < 0) status = 'order_now'
+    else if (remainingAfter <= lowThreshold) status = 'low_after'
+
+    filamentByProfile.push({
+      profile_id: profileId,
+      label: need.label,
+      needed: neededGrams,
+      current_stock: currentStock,
+      remaining_after: remainingAfter,
+      low_threshold: lowThreshold,
+      status,
+    })
+
+    // Keep the legacy shortfall list (parts panel reuses this shape) in sync for hard shortfalls
+    if (remainingAfter < 0) {
       filamentShortfalls.push({
         kind: 'filament',
         label: need.label,
-        needed: Math.round(neededGrams * 10) / 10,
-        available: Math.round(available * 10) / 10,
-        gap: Math.round((neededGrams - available) * 10) / 10,
+        needed: neededGrams,
+        available: currentStock,
+        gap: Math.round((neededGrams - currentStock) * 10) / 10,
         unit: 'g',
       })
     }
   }
+
+  // Sort: most urgent first (order_now, then low_after, then ok)
+  const statusRank = { order_now: 0, low_after: 1, ok: 2 } as const
+  filamentByProfile.sort((a, b) => statusRank[a.status] - statusRank[b.status])
 
   const shortfalls = [...filamentShortfalls, ...partShortfalls]
 
@@ -282,6 +323,10 @@ async function buildProjectDetail(userId: string, project: ProjectRow) {
     parts,
     cost,
     tiers,
+    filament: {
+      total_g: Math.round(totalFilamentG * 10) / 10,
+      by_profile: filamentByProfile,
+    },
     inventory: { can_fulfill: shortfalls.length === 0, shortfalls },
     tips,
   }

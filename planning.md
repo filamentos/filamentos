@@ -885,6 +885,35 @@ cost_per_item = total_project_cost / units_produced   -- units_produced entered 
 
 Pricing tiers (shown only in the collapsible selling section, computed on cost_per_item): break_even (1×), fair (2×), market (3×), suggested (clean round-up). Plus packaging_cost_per_unit, table_fee (spread across units_produced), platform_fee_pct. Post-event tracking: units_sold + actual_revenue → sell-through % + advice.
 
+### Filament usage visibility (v2.3)
+
+Grams math is surfaced at three levels so the user can plan filament orders:
+
+**1. Per color (inline):** next to each color's grams field, show `grams_used × plate.batch_quantity = total`. E.g. "67g × 7 = 469g".
+
+**2. Per plate subtotal:** at the bottom of each plate card, sum of all that plate's colors × the plate's batch.
+
+**3. Project totals panel — two additions:**
+- `Total filament: Xg` — sum of every color × its plate's batch, across all plates
+- **By-filament-profile breakdown** — grouped by the actual spool (so the same Purple used on 3 plates adds into one number). This is what tells the user what to order.
+
+**Forward-looking stock status per filament profile** (shown in the by-profile breakdown):
+```
+needed = Σ (color.grams_used × plate.batch_quantity) for that profile across all plates
+current_stock = sum of filament_remaining_g across the user's spools of that profile
+remaining_after = current_stock − needed
+
+status:
+  RED    "order now"   → remaining_after < 0           (project needs more than user has)
+  YELLOW "getting low" → remaining_after >= 0 AND
+                         remaining_after <= profile.low_gram_threshold_g
+                         (can finish, but drops to/below reorder point)
+  NORMAL no flag       → remaining_after > threshold
+```
+Reuses the existing per-profile `low_gram_threshold_g` from Phase 2 (no new setting). This replaces the blunt "Not enough inventory" check with a forward-looking one that catches the sneaky case: technically enough to finish, but it'll leave the spool below the reorder threshold.
+
+**✅ SHIPPED:** All three levels live. Server returns `filament: { total_g, by_profile: [{ profile_id, label, needed, current_stock, remaining_after, low_threshold, status }] }` from the projects route (by-profile sorted most-urgent-first). UI: Level 1 inline `Xg × N = Yg` under each color (live as you type), Level 2 "Plate total: Xg" per plate card, Level 3 "Total filament" + by-profile breakdown in the cost panel with red `order now` / yellow `low after` status using semantic danger/warning colors. Filament dropped from the blunt shortfall warning; parts shortfalls still shown separately.
+
 **Why per-plate is the model:** a plate is one physical print run. Whatever's on it — one big item or nine small ones — the user enters the real slicer grams and time for that plate. Print time never has to be guessed or scaled; it's always the measured truth. Batch = how many times you run that plate. The app can't know how many finished items result (only the user knows 9 fidgets came off one plate), so `units_produced` is entered by the user in the selling section to compute cost-per-item.
 
 ---

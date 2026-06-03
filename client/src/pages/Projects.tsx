@@ -76,6 +76,19 @@ interface Tiers {
 interface Shortfall {
   kind: 'filament' | 'part'; label: string; needed: number; available: number; gap: number; unit: string
 }
+interface FilamentProfileUsage {
+  profile_id: string
+  label: string
+  needed: number
+  current_stock: number
+  remaining_after: number
+  low_threshold: number
+  status: 'ok' | 'low_after' | 'order_now'
+}
+interface FilamentUsage {
+  total_g: number
+  by_profile: FilamentProfileUsage[]
+}
 interface ProjectDetail {
   project: Project
   printerName: string | null
@@ -83,6 +96,7 @@ interface ProjectDetail {
   parts: Part[]
   cost: CostBreakdown
   tiers: Tiers
+  filament: FilamentUsage
   inventory: { can_fulfill: boolean; shortfalls: Shortfall[] }
   tips: string[]
 }
@@ -434,96 +448,161 @@ function PlatesSection({ projectId, plates }: { projectId: string; plates: Plate
       <SectionTitle icon={IconStack2} title="Plates & colors" />
       <div className="space-y-3">
         {plates.map((plate) => (
-          <div key={plate.id} className="rounded-lg border border-border p-3 bg-elevated/40">
-            <div className="flex items-center gap-2 mb-2">
-              <FieldInput
-                value={plate.plate_name ?? ''}
-                mono={false}
-                placeholder="Plate name (e.g. Body)"
-                width="flex-1"
-                onCommit={(v) => patchPlate.mutate({ plateId: plate.id, data: { plate_name: v } })}
-              />
-              <button className="btn-icon text-danger hover:bg-danger-bg" title="Remove plate"
-                onClick={() => delPlate.mutate(plate.id)}>
-                <IconTrash size={14} />
-              </button>
-            </div>
-
-            {plate.colors.map((color) => (
-              <div key={color.id} className="flex items-center gap-2 mb-1.5 pl-2">
-                <input
-                  className="input flex-1 text-xs py-1.5"
-                  defaultValue={color.color_label ?? ''}
-                  placeholder="Color label"
-                  onBlur={(e) => {
-                    if (e.target.value !== (color.color_label ?? ''))
-                      patchColor.mutate({ plateId: plate.id, colorId: color.id, data: { color_label: e.target.value } })
-                  }}
-                />
-                <select
-                  className="input text-xs py-1.5"
-                  style={{ width: '40%' }}
-                  value={color.filament_profile_id ?? ''}
-                  onChange={(e) => patchColor.mutate({ plateId: plate.id, colorId: color.id, data: { filament_profile_id: e.target.value || null } })}
-                >
-                  <option value="">Pick filament…</option>
-                  {profiles.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.brand} {p.material}{p.color_name ? ` · ${p.color_name}` : ''}
-                    </option>
-                  ))}
-                </select>
-                <div className="relative w-24">
-                  <input
-                    className="input font-mono text-xs py-1.5 pr-7"
-                    type="number" min="0" step="any"
-                    defaultValue={color.grams_used}
-                    onBlur={(e) => {
-                      if (e.target.value !== color.grams_used)
-                        patchColor.mutate({ plateId: plate.id, colorId: color.id, data: { grams_used: parseFloat(e.target.value) || 0 } })
-                    }}
-                  />
-                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-ink-tertiary">g</span>
-                </div>
-                <button className="btn-icon w-6 h-6 text-ink-tertiary hover:text-danger" title="Remove color"
-                  onClick={() => delColor.mutate({ plateId: plate.id, colorId: color.id })}>
-                  <IconX size={12} />
-                </button>
-              </div>
-            ))}
-
-            <button className="text-xs text-accent hover:underline mt-1 pl-2"
-              onClick={() => addColor.mutate(plate.id)}>
-              + Add color
-            </button>
-
-            {/* Print time + batch for this plate */}
-            <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-border">
-              <PrintTimeInput
-                totalMin={plate.print_time_min}
-                onCommit={(total) => patchPlate.mutate({ plateId: plate.id, data: { print_time_min: total } })}
-              />
-              <div>
-                <label className="label">Times run (batch)</label>
-                <input
-                  className="input font-mono text-xs py-1.5"
-                  type="number" min="1" step="1"
-                  defaultValue={plate.batch_quantity}
-                  onBlur={(e) => {
-                    const v = parseInt(e.target.value) || 1
-                    if (v !== plate.batch_quantity)
-                      patchPlate.mutate({ plateId: plate.id, data: { batch_quantity: v } })
-                  }}
-                />
-              </div>
-            </div>
-          </div>
+          <PlateCard
+            key={plate.id}
+            plate={plate}
+            profiles={profiles}
+            onPatchPlate={(data) => patchPlate.mutate({ plateId: plate.id, data })}
+            onDelPlate={() => delPlate.mutate(plate.id)}
+            onAddColor={() => addColor.mutate(plate.id)}
+            onPatchColor={(colorId, data) => patchColor.mutate({ plateId: plate.id, colorId, data })}
+            onDelColor={(colorId) => delColor.mutate({ plateId: plate.id, colorId })}
+          />
         ))}
 
         <button className="btn-secondary text-xs py-1.5" onClick={() => addPlate.mutate()}>
           <IconPlus size={13} /> Add plate
         </button>
       </div>
+    </div>
+  )
+}
+
+// ── Plate card (local state for live grams math) ──────────────
+
+type ProfileOption = { id: string; brand: string; material: string; color_name: string | null }
+
+function PlateCard({
+  plate, profiles, onPatchPlate, onDelPlate, onAddColor, onPatchColor, onDelColor,
+}: {
+  plate: Plate
+  profiles: ProfileOption[]
+  onPatchPlate: (data: Record<string, unknown>) => void
+  onDelPlate: () => void
+  onAddColor: () => void
+  onPatchColor: (colorId: string, data: Record<string, unknown>) => void
+  onDelColor: (colorId: string) => void
+}) {
+  // Local live-math state — keyed by color id for grams, plus plate batch.
+  const [grams, setGrams] = useState<Record<string, string>>(
+    () => Object.fromEntries(plate.colors.map((cl) => [cl.id, cl.grams_used])),
+  )
+  const [batch, setBatch] = useState(plate.batch_quantity.toString())
+
+  // Re-sync when server data changes (color added/removed, refetch)
+  useEffect(() => {
+    setGrams(Object.fromEntries(plate.colors.map((cl) => [cl.id, cl.grams_used])))
+  }, [plate.colors])
+  useEffect(() => { setBatch(plate.batch_quantity.toString()) }, [plate.batch_quantity])
+
+  const batchNum = Math.max(1, parseInt(batch) || 1)
+  const plateTotal = plate.colors.reduce((sum, cl) => {
+    const g = parseFloat(grams[cl.id] ?? cl.grams_used) || 0
+    return sum + g * batchNum
+  }, 0)
+  const fmt = (n: number) => (n % 1 === 0 ? n.toString() : n.toFixed(1))
+
+  return (
+    <div className="rounded-lg border border-border p-3 bg-elevated/40">
+      <div className="flex items-center gap-2 mb-2">
+        <FieldInput
+          value={plate.plate_name ?? ''}
+          mono={false}
+          placeholder="Plate name (e.g. Body)"
+          width="flex-1"
+          onCommit={(v) => onPatchPlate({ plate_name: v })}
+        />
+        <button className="btn-icon text-danger hover:bg-danger-bg" title="Remove plate" onClick={onDelPlate}>
+          <IconTrash size={14} />
+        </button>
+      </div>
+
+      {plate.colors.map((color) => {
+        const g = parseFloat(grams[color.id] ?? color.grams_used) || 0
+        return (
+          <div key={color.id} className="mb-1.5 pl-2">
+            <div className="flex items-center gap-2">
+              <input
+                className="input flex-1 text-xs py-1.5"
+                defaultValue={color.color_label ?? ''}
+                placeholder="Color label"
+                onBlur={(e) => {
+                  if (e.target.value !== (color.color_label ?? ''))
+                    onPatchColor(color.id, { color_label: e.target.value })
+                }}
+              />
+              <select
+                className="input text-xs py-1.5"
+                style={{ width: '40%' }}
+                value={color.filament_profile_id ?? ''}
+                onChange={(e) => onPatchColor(color.id, { filament_profile_id: e.target.value || null })}
+              >
+                <option value="">Pick filament…</option>
+                {profiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.brand} {p.material}{p.color_name ? ` · ${p.color_name}` : ''}
+                  </option>
+                ))}
+              </select>
+              <div className="relative w-24">
+                <input
+                  className="input font-mono text-xs py-1.5 pr-7"
+                  type="number" min="0" step="any"
+                  value={grams[color.id] ?? ''}
+                  onChange={(e) => setGrams((prev) => ({ ...prev, [color.id]: e.target.value }))}
+                  onBlur={(e) => {
+                    if (e.target.value !== color.grams_used)
+                      onPatchColor(color.id, { grams_used: parseFloat(e.target.value) || 0 })
+                  }}
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-ink-tertiary">g</span>
+              </div>
+              <button className="btn-icon w-6 h-6 text-ink-tertiary hover:text-danger" title="Remove color"
+                onClick={() => onDelColor(color.id)}>
+                <IconX size={12} />
+              </button>
+            </div>
+            {/* Level 1 — per-color batch math */}
+            {g > 0 && batchNum > 1 && (
+              <p className="text-[10px] text-ink-tertiary mt-0.5 pl-1 font-mono">
+                {fmt(g)}g × {batchNum} = {fmt(g * batchNum)}g
+              </p>
+            )}
+          </div>
+        )
+      })}
+
+      <button className="text-xs text-accent hover:underline mt-1 pl-2" onClick={onAddColor}>
+        + Add color
+      </button>
+
+      {/* Print time + batch for this plate */}
+      <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-border">
+        <PrintTimeInput
+          totalMin={plate.print_time_min}
+          onCommit={(total) => onPatchPlate({ print_time_min: total })}
+        />
+        <div>
+          <label className="label">Times run (batch)</label>
+          <input
+            className="input font-mono text-xs py-1.5"
+            type="number" min="1" step="1"
+            value={batch}
+            onChange={(e) => setBatch(e.target.value)}
+            onBlur={() => {
+              const v = Math.max(1, parseInt(batch) || 1)
+              if (v !== plate.batch_quantity) onPatchPlate({ batch_quantity: v })
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Level 2 — plate filament subtotal */}
+      {plateTotal > 0 && (
+        <p className="text-xs text-ink-secondary mt-2 pt-2 border-t border-border">
+          Plate total: <span className="font-mono text-ink-primary">{fmt(plateTotal)}g</span>
+        </p>
+      )}
     </div>
   )
 }
@@ -607,9 +686,12 @@ function CostRow({ label, value }: { label: string; value: number }) {
   )
 }
 
-function CostPanel({ cost, unitsProduced, inventory }: {
-  cost: CostBreakdown; unitsProduced: number; inventory: ProjectDetail['inventory']
+function CostPanel({ cost, unitsProduced, filament, inventory }: {
+  cost: CostBreakdown; unitsProduced: number; filament: FilamentUsage; inventory: ProjectDetail['inventory']
 }) {
+  const fmt = (n: number) => (n % 1 === 0 ? n.toString() : n.toFixed(1))
+  const partShortfalls = inventory.shortfalls.filter((s) => s.kind === 'part')
+
   return (
     <div className="card sticky top-4">
       <div className="text-center pb-3 mb-3 border-b border-border">
@@ -633,21 +715,56 @@ function CostPanel({ cost, unitsProduced, inventory }: {
         Total print time: <span className="font-mono">{(cost.total_print_time_min / 60).toFixed(1)} hrs</span>
       </div>
 
-      {/* Inventory check */}
-      {inventory.shortfalls.length > 0 ? (
+      {/* Level 3 — filament totals + by-profile stock status */}
+      {filament.total_g > 0 && (
+        <div className="mt-3 pt-3 border-t border-border">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] uppercase text-ink-tertiary font-semibold tracking-wider">Total filament</span>
+            <span className="font-mono text-sm text-ink-primary">{fmt(filament.total_g)}g</span>
+          </div>
+
+          <div className="space-y-1.5">
+            {filament.by_profile.map((p) => {
+              const isRed = p.status === 'order_now'
+              const isYellow = p.status === 'low_after'
+              const labelColor = isRed ? 'text-danger' : isYellow ? 'text-warning' : 'text-ink-secondary'
+              return (
+                <div key={p.profile_id} className="text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`truncate ${labelColor}`}>
+                      {isRed && <IconAlertTriangle size={11} className="inline mr-1 -mt-0.5" />}
+                      {p.label}
+                    </span>
+                    <span className={`font-mono shrink-0 ${labelColor}`}>{fmt(p.needed)}g</span>
+                  </div>
+                  {isRed && (
+                    <p className="text-[10px] text-danger font-mono pl-1">
+                      order now — need {fmt(p.needed)}g, have {fmt(p.current_stock)}g
+                    </p>
+                  )}
+                  {isYellow && (
+                    <p className="text-[10px] text-warning font-mono pl-1">
+                      low after — leaves {fmt(p.remaining_after)}g, below your {fmt(p.low_threshold)}g reorder point
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Parts shortfalls (filament now handled above) */}
+      {partShortfalls.length > 0 && (
         <div className="mt-3 p-2.5 rounded-md bg-danger-bg border border-border text-xs">
           <div className="flex items-center gap-1.5 font-semibold text-danger mb-1">
-            <IconAlertTriangle size={12} /> Not enough inventory
+            <IconAlertTriangle size={12} /> Not enough parts
           </div>
-          {inventory.shortfalls.map((s, i) => (
+          {partShortfalls.map((s, i) => (
             <p key={i} className="text-ink-secondary">
               {s.label}: need <span className="font-mono">{s.needed}</span>{s.unit}, have <span className="font-mono text-danger">{s.available}</span>{s.unit}
             </p>
           ))}
-        </div>
-      ) : (
-        <div className="mt-3 flex items-center gap-1.5 text-xs text-success">
-          <IconCircleCheck size={13} /> Enough inventory
         </div>
       )}
     </div>
@@ -965,7 +1082,7 @@ function ProjectDetailView({ id, onBack }: { id: string; onBack: () => void }) {
 
         {/* Right: cost panel + selling */}
         <div className="space-y-4">
-          <CostPanel cost={detail.cost} unitsProduced={project.units_produced} inventory={detail.inventory} />
+          <CostPanel cost={detail.cost} unitsProduced={project.units_produced} filament={detail.filament} inventory={detail.inventory} />
         </div>
 
         {/* Selling spans full width below */}
