@@ -4,9 +4,7 @@ import {
   IconCylinder,
   IconPrinter,
   IconTool,
-  IconShoppingCart,
   IconChevronRight,
-  IconPackage,
   IconFile3d,
   IconWeight,
   IconChartBar,
@@ -252,9 +250,6 @@ function QuickActions({ onLogWeight }: { onLogWeight: () => void }) {
         </Link>
         <Link to="/workshop" className="btn-ghost text-xs py-1.5 px-3">
           <IconTool size={13} /> Workshop
-        </Link>
-        <Link to="/purchases" className="btn-ghost text-xs py-1.5 px-3">
-          <IconShoppingCart size={13} /> Log purchase
         </Link>
       </div>
     </div>
@@ -506,12 +501,10 @@ export default function Dashboard() {
             />
             <StatCard label="Printers"    value="—" icon={IconPrinter}      to="/printers"  sub="See your fleet" />
             <StatCard label="Workshop"    value="—" icon={IconTool}         to="/workshop"  sub="Consumables & tools" />
-            <StatCard label="Print kits"  value="—" icon={IconPackage}      to="/kits"      sub="Track your builds" />
+            <StatCard label="Projects"    value="—" icon={IconFile3d}       to="/projects"  sub="Cost & price your prints" />
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
-            <StatCard label="Projects"    value="—" icon={IconFile3d}       to="/projects"  sub="Cost & price your prints" />
-            <StatCard label="Purchases"   value="—" icon={IconShoppingCart} to="/purchases" sub="Spend history" />
             <StatCard
               label="Active alerts"
               value={activeAlerts.filter((a) => !a.is_dismissed).length}

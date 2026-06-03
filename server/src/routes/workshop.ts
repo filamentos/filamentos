@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { eq, and, asc } from 'drizzle-orm'
 import { db } from '../db/client'
-import { workshopItems } from '../db/schema'
+import { workshopItems, purchaseRecords } from '../db/schema'
 import { requireAuth } from '../lib/session'
 import { ok, err } from '../lib/response'
 import { evaluateAlerts } from '../lib/alerts'
@@ -32,6 +32,10 @@ workshopRoutes.post('/', async (c) => {
     reorder_url?: string
     storage_location?: string
     notes?: string
+    // Inline purchase capture
+    price_paid?: number
+    source_name?: string
+    purchase_date?: string
   }
 
   const body = await c.req.json<Body>()
@@ -53,6 +57,23 @@ workshopRoutes.post('/', async (c) => {
       notes:               body.notes?.trim() ?? null,
     })
     .returning()
+
+  // Inline purchase record when a price was entered — feeds price history + spend dashboard
+  if (body.price_paid != null && !isNaN(Number(body.price_paid))) {
+    const qty = body.quantity && body.quantity > 0 ? body.quantity : 1
+    await db.insert(purchaseRecords).values({
+      user_id:        userId,
+      item_type:      'workshop_item',
+      item_ref_id:    created.id,
+      purchase_date:  body.purchase_date ?? new Date().toISOString().split('T')[0],
+      quantity:       qty,
+      price_per_unit: body.price_paid.toString(),
+      total_paid:     (body.price_paid * qty).toString(),
+      currency:       'USD',
+      product_title:  created.name,
+      notes:          body.source_name ? `Source: ${body.source_name.trim()}` : null,
+    })
+  }
 
   evaluateAlerts(userId).catch((e) => console.error('[alerts]', e))
   return ok(c, created, 201)

@@ -9,6 +9,7 @@ import {
 import AppShell from '../components/AppShell'
 import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
+import PriceHistory from '../components/ui/PriceHistory'
 import { api } from '../lib/api'
 
 // ── Types ─────────────────────────────────────────────────────
@@ -83,6 +84,7 @@ interface ItemRowProps {
 function ItemRow({ item }: ItemRowProps) {
   const update = useUpdateWorkshop()
   const del    = useDeleteWorkshop()
+  const [expanded, setExpanded] = useState(false)
 
   const qty       = parseFloat(item.quantity)
   const threshold = parseFloat(item.low_stock_threshold)
@@ -101,65 +103,77 @@ function ItemRow({ item }: ItemRowProps) {
     : null
 
   return (
-    <div className={[
-      'flex items-center gap-3 py-2.5 border-b border-border last:border-0 group',
-      isEmpty ? 'opacity-60' : '',
-    ].join(' ')}>
-      {/* Low stock indicator */}
-      <div className="w-1.5 shrink-0">
-        {isEmpty && <div className="w-1.5 h-1.5 rounded-full bg-danger" />}
-        {!isEmpty && isLow && <div className="w-1.5 h-1.5 rounded-full bg-warning" />}
-      </div>
+    <div className="border-b border-border last:border-0">
+      <div className={[
+        'flex items-center gap-3 py-2.5 group',
+        isEmpty ? 'opacity-60' : '',
+      ].join(' ')}>
+        {/* Low stock indicator */}
+        <div className="w-1.5 shrink-0">
+          {isEmpty && <div className="w-1.5 h-1.5 rounded-full bg-danger" />}
+          {!isEmpty && isLow && <div className="w-1.5 h-1.5 rounded-full bg-warning" />}
+        </div>
 
-      {/* Name + spec */}
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-ink-primary truncate">{item.name}</p>
-        {specStr && <p className="text-[11px] text-ink-tertiary">{specStr}</p>}
-        {item.storage_location && (
-          <p className="text-[11px] text-ink-tertiary">{item.storage_location}</p>
-        )}
-      </div>
-
-      {/* Stock badge */}
-      <div className="shrink-0">
-        {isEmpty ? (
-          <Badge variant="danger">Out</Badge>
-        ) : isLow ? (
-          <Badge variant="warning">
-            <IconAlertTriangle size={9} /> Low
-          </Badge>
-        ) : null}
-      </div>
-
-      {/* +/- controls */}
-      <div className="flex items-center gap-1 shrink-0">
+        {/* Name + spec — click to expand price history */}
         <button
-          onClick={() => adjustQty(-1)}
-          disabled={qty === 0 || update.isPending}
-          className="w-6 h-6 rounded bg-elevated text-ink-secondary hover:bg-border-strong hover:text-ink-primary transition-colors disabled:opacity-30 flex items-center justify-center"
+          className="flex-1 min-w-0 text-left"
+          onClick={() => setExpanded((e) => !e)}
         >
-          <IconMinus size={11} />
+          <p className="text-sm text-ink-primary truncate">{item.name}</p>
+          {specStr && <p className="text-[11px] text-ink-tertiary">{specStr}</p>}
+          {item.storage_location && (
+            <p className="text-[11px] text-ink-tertiary">{item.storage_location}</p>
+          )}
         </button>
-        <span className="w-10 text-center font-mono text-sm text-ink-primary">
-          {qty % 1 === 0 ? qty.toFixed(0) : qty.toFixed(1)} {item.unit}
-        </span>
+
+        {/* Stock badge */}
+        <div className="shrink-0">
+          {isEmpty ? (
+            <Badge variant="danger">Out</Badge>
+          ) : isLow ? (
+            <Badge variant="warning">
+              <IconAlertTriangle size={9} /> Low
+            </Badge>
+          ) : null}
+        </div>
+
+        {/* +/- controls */}
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => adjustQty(-1)}
+            disabled={qty === 0 || update.isPending}
+            className="w-6 h-6 rounded bg-elevated text-ink-secondary hover:bg-border-strong hover:text-ink-primary transition-colors disabled:opacity-30 flex items-center justify-center"
+          >
+            <IconMinus size={11} />
+          </button>
+          <span className="w-10 text-center font-mono text-sm text-ink-primary">
+            {qty % 1 === 0 ? qty.toFixed(0) : qty.toFixed(1)} {item.unit}
+          </span>
+          <button
+            onClick={() => adjustQty(1)}
+            disabled={update.isPending}
+            className="w-6 h-6 rounded bg-elevated text-ink-secondary hover:bg-border-strong hover:text-ink-primary transition-colors flex items-center justify-center"
+          >
+            <IconPlus size={11} />
+          </button>
+        </div>
+
+        {/* Delete — hover only */}
         <button
-          onClick={() => adjustQty(1)}
-          disabled={update.isPending}
-          className="w-6 h-6 rounded bg-elevated text-ink-secondary hover:bg-border-strong hover:text-ink-primary transition-colors flex items-center justify-center"
+          onClick={() => del.mutate(item.id)}
+          className="opacity-0 group-hover:opacity-100 text-[11px] text-ink-tertiary hover:text-danger transition-all px-1"
+          title="Delete"
         >
-          <IconPlus size={11} />
+          ✕
         </button>
       </div>
 
-      {/* Delete — hover only */}
-      <button
-        onClick={() => del.mutate(item.id)}
-        className="opacity-0 group-hover:opacity-100 text-[11px] text-ink-tertiary hover:text-danger transition-all px-1"
-        title="Delete"
-      >
-        ✕
-      </button>
+      {/* Price history (expand on name click) */}
+      {expanded && (
+        <div className="pb-2 pl-4">
+          <PriceHistory itemType="workshop_item" itemId={item.id} />
+        </div>
+      )}
     </div>
   )
 }
@@ -173,6 +187,7 @@ function AddItemModal({ onClose }: { onClose: () => void }) {
     quantity: '0', low_stock_threshold: '5',
     storage_location: '', reorder_url: '',
     spec_size: '', spec_material: '',
+    price_paid: '', source_name: '',
   })
 
   function set(key: string, value: string) {
@@ -194,6 +209,8 @@ function AddItemModal({ onClose }: { onClose: () => void }) {
       storage_location:    form.storage_location || undefined,
       reorder_url:         form.reorder_url || undefined,
       spec:                Object.keys(spec).length ? spec : undefined,
+      price_paid:          form.price_paid ? parseFloat(form.price_paid) : undefined,
+      source_name:         form.source_name || undefined,
     })
     onClose()
   }
@@ -261,7 +278,22 @@ function AddItemModal({ onClose }: { onClose: () => void }) {
             <input className="input" value={form.reorder_url}
               onChange={(e) => set('reorder_url', e.target.value)} placeholder="https://..." />
           </div>
+
+          <div>
+            <label className="label">Price paid <span className="text-ink-tertiary">(optional)</span></label>
+            <input className="input font-mono" type="number" step="0.01" min="0"
+              value={form.price_paid} onChange={(e) => set('price_paid', e.target.value)} placeholder="12.99" />
+          </div>
+          <div>
+            <label className="label">Source / store <span className="text-ink-tertiary">(optional)</span></label>
+            <input className="input" value={form.source_name}
+              onChange={(e) => set('source_name', e.target.value)} placeholder="Amazon, McMaster…" />
+          </div>
         </div>
+
+        <p className="text-[11px] text-ink-tertiary">
+          Entering a price logs a purchase record automatically — it feeds price history and the spend dashboard.
+        </p>
 
         {create.error && (
           <p className="text-xs text-danger bg-danger-bg rounded-md px-3 py-2">

@@ -8,8 +8,6 @@ import Dashboard from './pages/Dashboard'
 import FilamentPage from './pages/Filament'
 import PrintersPage from './pages/Printers'
 import WorkshopPage from './pages/Workshop'
-import PurchasesPage from './pages/Purchases'
-import KitsPage from './pages/Kits'
 import ProjectsPage from './pages/Projects'
 import SettingsPage from './pages/Settings'
 import AlertsPage from './pages/Alerts'
@@ -41,8 +39,7 @@ export default function App() {
         <Route path="/filament"  element={<P><FilamentPage /></P>} />
         <Route path="/printers"  element={<P><PrintersPage /></P>} />
         <Route path="/workshop"  element={<P><WorkshopPage /></P>} />
-        <Route path="/purchases" element={<P><PurchasesPage /></P>} />
-        <Route path="/kits"      element={<P><KitsPage /></P>} />
+        <Route path="/purchases" element={<Navigate to="/" replace />} />
         <Route path="/projects"  element={<P><ProjectsPage /></P>} />
         <Route path="/quotes"    element={<Navigate to="/projects" replace />} />
         <Route path="/settings"  element={<P><SettingsPage /></P>} />

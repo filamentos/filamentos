@@ -6,7 +6,6 @@ import {
   IconTool,
   IconBell,
   IconSettings,
-  IconShoppingCart,
   IconPackage,
   IconFile3d,
 } from '@tabler/icons-react'
@@ -26,7 +25,6 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/workshop',  icon: IconTool,         label: 'Workshop' },
   { to: '/kits',      icon: IconPackage,      label: 'Kits' },
   { to: '/projects',  icon: IconFile3d,       label: 'Projects' },
-  { to: '/purchases', icon: IconShoppingCart, label: 'Purchases' },
 ]
 
 interface AppShellProps {
