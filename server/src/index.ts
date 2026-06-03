@@ -10,7 +10,6 @@ import partsRoutes from './routes/parts'
 import workshopRoutes from './routes/workshop'
 import purchaseRoutes from './routes/purchases'
 import materialRoutes from './routes/materials'
-import kitRoutes from './routes/kits'
 import projectRoutes from './routes/projects'
 import settingsRoutes from './routes/settings'
 
@@ -33,7 +32,6 @@ app.route('/api/printers', partsRoutes)
 app.route('/api/workshop', workshopRoutes)
 app.route('/api/purchases', purchaseRoutes)
 app.route('/api/materials', materialRoutes)
-app.route('/api/kits', kitRoutes)
 app.route('/api/projects', projectRoutes)
 app.route('/api/settings', settingsRoutes)
 

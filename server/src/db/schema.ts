@@ -315,39 +315,6 @@ export const workshopItems = pgTable('workshop_items', {
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
 })
 
-// ── Print Kits ────────────────────────────────────────────────
-
-export const printKits = pgTable('print_kits', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-  user_id: uuid('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  name: text('name').notNull(),
-  brand: text('brand'),
-  kits_owned: integer('kits_owned').default(0).notNull(),
-  kits_completed: integer('kits_completed').default(0).notNull(),
-  kits_in_progress: integer('kits_in_progress').default(0).notNull(),
-  project_url: text('project_url'),
-  purchase_record_id: uuid('purchase_record_id').references(() => purchaseRecords.id),
-  notes: text('notes'),
-  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
-})
-
-export const kitComponents = pgTable('kit_components', {
-  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
-  kit_id: uuid('kit_id')
-    .notNull()
-    .references(() => printKits.id, { onDelete: 'cascade' }),
-  component_type: text('component_type').notNull(),
-  workshop_item_id: uuid('workshop_item_id').references(() => workshopItems.id),
-  filament_profile_id: uuid('filament_profile_id').references(() => filamentProfiles.id),
-  quantity_per_build: numeric('quantity_per_build', { precision: 10, scale: 2 }).notNull(),
-  filament_grams_per_build: numeric('filament_grams_per_build', { precision: 6, scale: 1 }),
-  external_name: text('external_name'),
-  external_buy_url: text('external_buy_url'),
-  notes: text('notes'),
-})
-
 // ── Projects (unified: design + cost + selling) ───────────────
 
 export const projects = pgTable('projects', {

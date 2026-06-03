@@ -40,6 +40,7 @@ export default function App() {
         <Route path="/printers"  element={<P><PrintersPage /></P>} />
         <Route path="/workshop"  element={<P><WorkshopPage /></P>} />
         <Route path="/purchases" element={<Navigate to="/" replace />} />
+        <Route path="/kits"      element={<Navigate to="/workshop" replace />} />
         <Route path="/projects"  element={<P><ProjectsPage /></P>} />
         <Route path="/quotes"    element={<Navigate to="/projects" replace />} />
         <Route path="/settings"  element={<P><SettingsPage /></P>} />

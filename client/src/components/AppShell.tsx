@@ -6,7 +6,6 @@ import {
   IconTool,
   IconBell,
   IconSettings,
-  IconPackage,
   IconFile3d,
 } from '@tabler/icons-react'
 import { useAlerts } from '../hooks/useAlerts'
@@ -23,7 +22,6 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/filament',  icon: IconCylinder,     label: 'Filament' },
   { to: '/printers',  icon: IconPrinter,      label: 'Printers' },
   { to: '/workshop',  icon: IconTool,         label: 'Workshop' },
-  { to: '/kits',      icon: IconPackage,      label: 'Kits' },
   { to: '/projects',  icon: IconFile3d,       label: 'Projects' },
 ]
 
