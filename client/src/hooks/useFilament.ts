@@ -72,6 +72,24 @@ export function useSpools(profileId?: string) {
   })
 }
 
+export function useCreateSpool() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      api.post('/filament/spools', data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['filament'] }),
+  })
+}
+
+export function useReceiveSpool() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ spoolId, opening_gross_weight_g }: { spoolId: string; opening_gross_weight_g?: number }) =>
+      api.post(`/filament/spools/${spoolId}/receive`, { opening_gross_weight_g }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['filament'] }),
+  })
+}
+
 export function useWeighSpool(spoolId: string) {
   const qc = useQueryClient()
   return useMutation({

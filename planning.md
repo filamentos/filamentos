@@ -265,8 +265,11 @@ spools (
   id uuid PK,
   user_id uuid REFERENCES users(id) ON DELETE CASCADE,
   profile_id uuid REFERENCES filament_profiles(id) ON DELETE CASCADE,
-  status text DEFAULT 'reserve',    -- active | reserve | partial_reserve | empty | archived
-  purchase_date date,
+  status text DEFAULT 'reserve',    -- ordered | active | reserve | partial_reserve | empty | archived
+                                    -- 'ordered' = bought but not yet arrived; does NOT count toward usable inventory grams.
+                                    -- mark 'received' (→ reserve) when it physically arrives.
+  ordered_date date,                -- when the spool was ordered
+  received_date date,               -- when it physically arrived (ordered → reserve)
   opened_date date,
   empty_date date,
   current_gross_weight_g numeric(6,1),
@@ -912,8 +915,6 @@ status:
 ```
 Reuses the existing per-profile `low_gram_threshold_g` from Phase 2 (no new setting). This replaces the blunt "Not enough inventory" check with a forward-looking one that catches the sneaky case: technically enough to finish, but it'll leave the spool below the reorder threshold.
 
-**✅ SHIPPED:** All three levels live. Server returns `filament: { total_g, by_profile: [{ profile_id, label, needed, current_stock, remaining_after, low_threshold, status }] }` from the projects route (by-profile sorted most-urgent-first). UI: Level 1 inline `Xg × N = Yg` under each color (live as you type), Level 2 "Plate total: Xg" per plate card, Level 3 "Total filament" + by-profile breakdown in the cost panel with red `order now` / yellow `low after` status using semantic danger/warning colors. Filament dropped from the blunt shortfall warning; parts shortfalls still shown separately.
-
 **Why per-plate is the model:** a plate is one physical print run. Whatever's on it — one big item or nine small ones — the user enters the real slicer grams and time for that plate. Print time never has to be guessed or scaled; it's always the measured truth. Batch = how many times you run that plate. The app can't know how many finished items result (only the user knows 9 fidgets came off one plate), so `units_produced` is entered by the user in the selling section to compute cost-per-item.
 
 ---
@@ -1237,6 +1238,29 @@ Major structural refactor based on real usage feedback. Shipped in 2 commits (ad
 - [x] "Quote settings" → "Cost & pricing settings" in Settings, points at /api/settings
 
 **⚠️ KNOWN GAP — per-printer wattage:** electricity cost currently uses a single `default_printer_wattage_w` from settings regardless of which printer is selected. Printers don't have a wattage column yet. To make electricity cost accurate per printer, add `wattage_w` to the printers table and have projectCost.ts read from the selected printer. (On the post-merge enhancement list.)
+
+### Phase 4.6 — Inventory consolidation (structural simplification) 🔧 PLANNED
+
+Based on real usage — collapse redundant pages into where the work actually happens:
+
+**1. Add spools from the Filament page (two-step order flow)**
+- Each filament profile card gets an "Add spool" action
+- Spool lifecycle: **ordered** (bought, not yet arrived — does NOT count toward usable grams) → mark **received** (→ reserve, now counts) → active → empty
+- New spool fields: `ordered_date`, `received_date`, status enum gains `ordered`
+- When adding a spool, the purchase info (price paid, source) is entered inline — creates the purchase_record right there. No separate purchasing step.
+
+**2. Kill the separate Purchases page — fold purchasing into inventory**
+- Remove the Purchases page and sidebar item entirely
+- Purchase records are created inline when adding a spool (filament) or a workshop item
+- **Price history** moves onto each item: each filament profile and each workshop item card gets an expandable "price history" showing the Recharts price-over-time chart for THAT item (more useful than a separate page — the price intelligence lives with the thing it describes)
+- The spend dashboard on the main Dashboard stays (it aggregates purchase_records regardless of where they're created)
+
+**3. Move Print Kits into Workshop — a kit is just a workshop item**
+- Remove the Kits page and sidebar item
+- A print kit is simply a workshop item (like a screw or fastener) — counted, ordered, tracked the same way. No special build-tracking / component-checklist behavior.
+- Drop the kits + kit_components tables (or repurpose as workshop_items). Existing kit data not preserved (user starting fresh).
+
+After this: the sidebar is leaner — Filament, Printers, Workshop, Projects, Settings. Inventory and purchasing happen in one place each.
 
 ### Phase 5 — SaaS launch
 - [ ] Remove allowlist → open signups

@@ -48,8 +48,10 @@ export interface Spool {
   id: string
   user_id: string
   profile_id: string
-  status: 'active' | 'reserve' | 'partial_reserve' | 'empty' | 'archived'
+  status: 'ordered' | 'active' | 'reserve' | 'partial_reserve' | 'empty' | 'archived'
   purchase_date: string | null
+  ordered_date: string | null
+  received_date: string | null
   opened_date: string | null
   empty_date: string | null
   current_gross_weight_g: number | null

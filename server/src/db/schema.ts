@@ -155,8 +155,10 @@ export const spools = pgTable('spools', {
   profile_id: uuid('profile_id')
     .notNull()
     .references(() => filamentProfiles.id, { onDelete: 'cascade' }),
-  status: text('status').default('reserve').notNull(),
+  status: text('status').default('reserve').notNull(), // ordered | reserve | partial_reserve | active | empty | archived
   purchase_date: date('purchase_date'),
+  ordered_date: date('ordered_date'),
+  received_date: date('received_date'),
   opened_date: date('opened_date'),
   empty_date: date('empty_date'),
   current_gross_weight_g: numeric('current_gross_weight_g', { precision: 6, scale: 1 }),

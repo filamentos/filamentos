@@ -5,6 +5,7 @@ import {
   filamentProfiles,
   spools,
   weightLogs,
+  purchaseRecords,
 } from '../db/schema'
 import { requireAuth } from '../lib/session'
 import { ok, err } from '../lib/response'
@@ -80,22 +81,23 @@ filament.get('/profiles', async (c) => {
   // Group counts by profile_id
   const counts: Record<
     string,
-    { active: number; reserve: number; partial_reserve: number; total: number }
+    { active: number; reserve: number; partial_reserve: number; ordered: number; total: number }
   > = {}
 
   for (const spool of allSpools) {
     if (!counts[spool.profile_id]) {
-      counts[spool.profile_id] = { active: 0, reserve: 0, partial_reserve: 0, total: 0 }
+      counts[spool.profile_id] = { active: 0, reserve: 0, partial_reserve: 0, ordered: 0, total: 0 }
     }
     counts[spool.profile_id].total++
     if (spool.status === 'active') counts[spool.profile_id].active++
     else if (spool.status === 'reserve') counts[spool.profile_id].reserve++
     else if (spool.status === 'partial_reserve') counts[spool.profile_id].partial_reserve++
+    else if (spool.status === 'ordered') counts[spool.profile_id].ordered++
   }
 
   const result = profiles.map((p) => ({
     ...p,
-    spool_counts: counts[p.id] ?? { active: 0, reserve: 0, partial_reserve: 0, total: 0 },
+    spool_counts: counts[p.id] ?? { active: 0, reserve: 0, partial_reserve: 0, ordered: 0, total: 0 },
   }))
 
   return ok(c, result)
@@ -320,8 +322,10 @@ filament.post('/spools', async (c) => {
 
   type CreateSpoolBody = {
     profile_id: string
-    status?: string
+    status?: string                  // 'ordered' | 'reserve'
     purchase_date?: string
+    ordered_date?: string
+    received_date?: string
     current_gross_weight_g?: number
     opening_gross_weight_g?: number
     storage_location?: string
@@ -329,6 +333,10 @@ filament.post('/spools', async (c) => {
     lot_number?: string
     purchase_record_id?: string
     notes?: string
+    // Inline purchase capture
+    price_paid?: number
+    source_name?: string
+    net_weight_g?: number
   }
 
   const body = await c.req.json<CreateSpoolBody>()
@@ -337,31 +345,98 @@ filament.post('/spools', async (c) => {
 
   // Verify profile belongs to user
   const [profile] = await db
-    .select({ id: filamentProfiles.id })
+    .select()
     .from(filamentProfiles)
     .where(and(eq(filamentProfiles.id, body.profile_id), eq(filamentProfiles.user_id, userId)))
     .limit(1)
 
   if (!profile) return err(c, 'Profile not found', 404)
 
+  const status = body.status === 'ordered' ? 'ordered' : 'reserve'
+  const today = new Date().toISOString().split('T')[0]
+
+  // Optionally create a purchase_record inline when a price was entered
+  let purchaseRecordId: string | null = body.purchase_record_id ?? null
+  if (purchaseRecordId == null && body.price_paid != null && !isNaN(Number(body.price_paid))) {
+    const label = `${profile.brand} ${profile.material}${profile.color_name ? ` ${profile.color_name}` : ''}`.trim()
+    const [rec] = await db
+      .insert(purchaseRecords)
+      .values({
+        user_id: userId,
+        item_type: 'filament_spool',
+        item_ref_id: profile.id,
+        purchase_date: body.ordered_date ?? body.purchase_date ?? today,
+        quantity: 1,
+        price_per_unit: body.price_paid.toString(),
+        total_paid: body.price_paid.toString(),
+        currency: profile.currency ?? 'USD',
+        product_title: label,
+        notes: body.source_name ? `Source: ${body.source_name.trim()}` : null,
+      })
+      .returning()
+    purchaseRecordId = rec.id
+  }
+
   const [spool] = await db
     .insert(spools)
     .values({
       user_id: userId,
       profile_id: body.profile_id,
-      status: body.status ?? 'reserve',
-      purchase_date: body.purchase_date ?? null,
+      status,
+      purchase_date: body.purchase_date ?? body.ordered_date ?? null,
+      ordered_date: body.ordered_date ?? (status === 'ordered' ? today : null),
+      received_date: status === 'reserve' ? (body.received_date ?? today) : null,
       current_gross_weight_g: body.current_gross_weight_g?.toString() ?? null,
       opening_gross_weight_g: body.opening_gross_weight_g?.toString() ?? null,
       storage_location: body.storage_location?.trim() ?? null,
       is_in_drybox: body.is_in_drybox ?? false,
       lot_number: body.lot_number?.trim() ?? null,
-      purchase_record_id: body.purchase_record_id ?? null,
+      purchase_record_id: purchaseRecordId,
       notes: body.notes?.trim() ?? null,
     })
     .returning()
 
+  evaluateAlerts(userId).catch((e) => console.error('[alerts]', e))
   return ok(c, spool, 201)
+})
+
+/**
+ * POST /api/filament/spools/:id/receive
+ * Mark an ordered spool as received → status 'reserve', received_date today.
+ * Optionally records the opening gross weight.
+ */
+filament.post('/spools/:id/receive', async (c) => {
+  const userId = c.get('userId')
+  const spoolId = c.req.param('id')
+
+  type ReceiveBody = { opening_gross_weight_g?: number }
+  const body = await c.req.json<ReceiveBody>().catch(() => ({} as ReceiveBody))
+
+  const [spool] = await db
+    .select()
+    .from(spools)
+    .where(and(eq(spools.id, spoolId), eq(spools.user_id, userId)))
+    .limit(1)
+
+  if (!spool) return err(c, 'Spool not found', 404)
+  if (spool.status !== 'ordered') return err(c, 'Only ordered spools can be received')
+
+  const today = new Date().toISOString().split('T')[0]
+  const opening = body.opening_gross_weight_g != null ? String(body.opening_gross_weight_g) : null
+
+  const [updated] = await db
+    .update(spools)
+    .set({
+      status: 'reserve',
+      received_date: today,
+      opening_gross_weight_g: opening ?? spool.opening_gross_weight_g,
+      current_gross_weight_g: opening ?? spool.current_gross_weight_g,
+    })
+    .where(eq(spools.id, spoolId))
+    .returning()
+
+  evaluateAlerts(userId).catch((e) => console.error('[alerts]', e))
+  return ok(c, updated)
 })
 
 /**

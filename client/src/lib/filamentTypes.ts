@@ -6,6 +6,7 @@ export interface SpoolCounts {
   active: number
   reserve: number
   partial_reserve: number
+  ordered: number
   total: number
 }
 
