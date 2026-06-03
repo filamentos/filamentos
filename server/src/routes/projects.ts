@@ -20,6 +20,7 @@ import {
   calculatePricingTiers,
   sellThroughAdvice,
   type CostInputs,
+  type PlateInput,
   type InventoryShortfall,
 } from '../lib/projectCost'
 
@@ -71,6 +72,8 @@ interface PlateOut {
   id: string
   plate_number: number
   plate_name: string | null
+  print_time_min: string | null
+  batch_quantity: number
   colors: PlateColorOut[]
 }
 interface PartOut {
@@ -93,12 +96,13 @@ async function buildProjectDetail(userId: string, project: ProjectRow) {
     .orderBy(projectPlates.plate_number)
 
   const plates: PlateOut[] = []
-  const filamentForCost: CostInputs['filament'] = []
+  const platesForCost: CostInputs['plates'] = []
   const filamentShortfalls: InventoryShortfall[] = []
-  // accumulate filament needed per profile across plates
+  // accumulate filament needed per profile across plates (× each plate's batch)
   const filamentNeed = new Map<string, { grams: number; label: string }>()
 
   for (const plate of plateRows) {
+    const plateBatch = Math.max(0, plate.batch_quantity ?? 1)
     const colorRows = await db
       .select({
         color: projectPlateColors,
@@ -112,6 +116,8 @@ async function buildProjectDetail(userId: string, project: ProjectRow) {
       .leftJoin(filamentProfiles, eq(projectPlateColors.filament_profile_id, filamentProfiles.id))
       .where(eq(projectPlateColors.plate_id, plate.id))
 
+    const costColors: PlateInput['colors'] = []
+
     const colors: PlateColorOut[] = colorRows.map((r) => {
       const cpg = costPerGram(
         r.cost_per_spool != null || r.net_spool_weight_g != null
@@ -119,12 +125,12 @@ async function buildProjectDetail(userId: string, project: ProjectRow) {
           : undefined,
       )
       const grams = num(r.color.grams_used)
-      filamentForCost.push({ grams_used: grams, cost_per_gram: cpg })
+      costColors.push({ grams_used: grams, cost_per_gram: cpg })
 
       const label = r.brand ? `${r.brand} ${r.material ?? ''}${r.color_name ? ` · ${r.color_name}` : ''}`.trim() : null
       if (r.color.filament_profile_id) {
         const prev = filamentNeed.get(r.color.filament_profile_id) ?? { grams: 0, label: label ?? 'Filament' }
-        prev.grams += grams
+        prev.grams += grams * plateBatch
         filamentNeed.set(r.color.filament_profile_id, prev)
       }
       return {
@@ -137,10 +143,18 @@ async function buildProjectDetail(userId: string, project: ProjectRow) {
       }
     })
 
+    platesForCost.push({
+      colors: costColors,
+      print_time_min: num(plate.print_time_min),
+      batch_quantity: plateBatch,
+    })
+
     plates.push({
       id: plate.id,
       plate_number: plate.plate_number,
       plate_name: plate.plate_name,
+      print_time_min: plate.print_time_min,
+      batch_quantity: plate.batch_quantity ?? 1,
       colors,
     })
   }
@@ -167,7 +181,7 @@ async function buildProjectDetail(userId: string, project: ProjectRow) {
     partsForCost.push({ quantity_per_unit: qtyPerUnit, cost_per_unit: unitCost })
 
     const available = num(r.quantity)
-    const needed = qtyPerUnit * Math.max(1, project.batch_quantity)
+    const needed = qtyPerUnit * Math.max(1, project.units_produced)
     if (r.part.workshop_item_id && needed > available) {
       partShortfalls.push({
         kind: 'part',
@@ -200,35 +214,29 @@ async function buildProjectDetail(userId: string, project: ProjectRow) {
   const wattage = settings?.default_printer_wattage_w ?? 200
 
   const costInputs: CostInputs = {
-    batch_quantity: project.batch_quantity,
-    time_mode: project.time_mode as 'per_unit' | 'per_plate',
-    print_time_min_per_unit: project.print_time_min_per_unit != null ? num(project.print_time_min_per_unit) : null,
-    units_per_plate: project.units_per_plate,
-    full_plate_time_min: project.full_plate_time_min != null ? num(project.full_plate_time_min) : null,
-    partial_plate_time_min: project.partial_plate_time_min != null ? num(project.partial_plate_time_min) : null,
-    assembly_time_min_per_unit: project.assembly_time_min_per_unit != null ? num(project.assembly_time_min_per_unit) : null,
-    filament: filamentForCost,
+    units_produced: project.units_produced,
+    plates: platesForCost,
     parts: partsForCost,
+    assembly_time_min_per_unit: project.assembly_time_min_per_unit != null ? num(project.assembly_time_min_per_unit) : null,
     electricity_rate_per_kwh: num(settings?.electricity_rate_per_kwh) || 0.14,
     printer_wattage_w: wattage,
     labor_rate_per_hr: num(settings?.labor_rate_per_hr),
     include_electricity: settings?.include_electricity ?? true,
     include_labor: settings?.include_labor ?? true,
-    packaging_cost_per_unit: num(project.packaging_cost_per_unit),
   }
 
   const cost = calculateCost(costInputs)
   const markup = num(settings?.default_markup) || 3.0
   const tiers = calculatePricingTiers(
-    cost.cost_to_print_one,
-    project.batch_quantity,
+    cost.cost_per_item,
+    project.units_produced,
     markup,
     project.target_price != null ? num(project.target_price) : null,
   )
 
-  // Filament shortfalls (needed grams across batch vs active-spool remaining)
+  // Filament shortfalls — filamentNeed already totals grams × each plate's batch
   for (const [profileId, need] of filamentNeed) {
-    const neededGrams = need.grams * Math.max(1, project.batch_quantity)
+    const neededGrams = need.grams
     const available = await activeFilamentGrams(profileId)
     if (neededGrams > available) {
       filamentShortfalls.push({
@@ -253,7 +261,7 @@ async function buildProjectDetail(userId: string, project: ProjectRow) {
     tips.push("Don't forget the table fee! A $40 table / 20 items = $2 each before you make a cent.")
   }
   const tp = num(project.target_price)
-  if (tp > 0 && tp < cost.cost_to_print_one * 2) {
+  if (tp > 0 && tp < cost.cost_per_item * 2) {
     tips.push(`Your sell price ($${tp.toFixed(2)}) is below 2× cost. You'll cover materials but not your time.`)
   }
   if (project.project_url) {
@@ -312,7 +320,7 @@ projectRoutes.get('/', async (c) => {
     out.push({
       project,
       printerName: detail.printerName,
-      cost_to_print_one: detail.cost.cost_to_print_one,
+      cost_per_item: detail.cost.cost_per_item,
       suggested_price: detail.tiers.suggested,
       has_selling_info: project.target_price != null || project.units_sold != null,
     })
@@ -357,8 +365,7 @@ projectRoutes.post('/', async (c) => {
       title: (body.title as string)?.trim() || null,
       designer: (body.designer as string)?.trim() || null,
       printer_id: printerId,
-      time_mode: (body.time_mode as string) ?? 'per_unit',
-      batch_quantity: (body.batch_quantity as number) ?? 1,
+      units_produced: (body.units_produced as number) ?? 1,
       venue: (body.venue as string) ?? 'other',
     })
     .returning()
@@ -369,12 +376,11 @@ projectRoutes.post('/', async (c) => {
 // ── Update project ────────────────────────────────────────────
 
 const NUMERIC_FIELDS = new Set([
-  'print_time_min_per_unit', 'full_plate_time_min', 'partial_plate_time_min',
   'assembly_time_min_per_unit', 'packaging_cost_per_unit', 'table_fee',
   'platform_fee_pct', 'target_price', 'actual_revenue',
 ])
-const INT_FIELDS = new Set(['batch_quantity', 'units_per_plate', 'units_sold'])
-const TEXT_FIELDS = new Set(['project_url', 'platform', 'status', 'title', 'designer', 'time_mode', 'venue', 'notes', 'event_date'])
+const INT_FIELDS = new Set(['units_produced', 'units_sold'])
+const TEXT_FIELDS = new Set(['project_url', 'platform', 'status', 'title', 'designer', 'venue', 'notes', 'event_date'])
 
 projectRoutes.patch('/:id', async (c) => {
   const userId = c.get('userId')
@@ -429,7 +435,7 @@ projectRoutes.post('/:id/plates', async (c) => {
   const projectId = c.req.param('id')
   if (!(await ownsProject(userId, projectId))) return err(c, 'Project not found', 404)
 
-  const body = await c.req.json<{ plate_number?: number; plate_name?: string }>()
+  const body = await c.req.json<{ plate_number?: number; plate_name?: string; print_time_min?: number; batch_quantity?: number }>()
   const existing = await db.select().from(projectPlates).where(eq(projectPlates.project_id, projectId))
   const [created] = await db
     .insert(projectPlates)
@@ -437,6 +443,8 @@ projectRoutes.post('/:id/plates', async (c) => {
       project_id: projectId,
       plate_number: body.plate_number ?? existing.length + 1,
       plate_name: body.plate_name?.trim() || null,
+      print_time_min: body.print_time_min != null ? body.print_time_min.toString() : null,
+      batch_quantity: body.batch_quantity ?? 1,
     })
     .returning()
   return ok(c, created, 201)
@@ -448,12 +456,14 @@ projectRoutes.patch('/:id/plates/:plateId', async (c) => {
   const plateId = c.req.param('plateId')
   if (!(await ownsProject(userId, projectId))) return err(c, 'Project not found', 404)
 
-  const body = await c.req.json<{ plate_name?: string; plate_number?: number }>()
+  const body = await c.req.json<{ plate_name?: string; plate_number?: number; print_time_min?: number | null; batch_quantity?: number }>()
   const [updated] = await db
     .update(projectPlates)
     .set({
       ...(body.plate_name !== undefined && { plate_name: body.plate_name?.trim() || null }),
       ...(body.plate_number !== undefined && { plate_number: body.plate_number }),
+      ...(body.print_time_min !== undefined && { print_time_min: body.print_time_min == null ? null : body.print_time_min.toString() }),
+      ...(body.batch_quantity !== undefined && { batch_quantity: body.batch_quantity }),
     })
     .where(and(eq(projectPlates.id, plateId), eq(projectPlates.project_id, projectId)))
     .returning()
@@ -599,16 +609,16 @@ projectRoutes.post('/:id/complete', async (c) => {
     .returning()
 
   const detail = await buildProjectDetail(userId, updated)
-  const sellThroughPct = project.batch_quantity > 0
-    ? Math.round((body.units_sold / project.batch_quantity) * 100)
+  const sellThroughPct = project.units_produced > 0
+    ? Math.round((body.units_sold / project.units_produced) * 100)
     : 0
-  const actualProfit = body.actual_revenue - detail.cost.cost_to_print_batch * (body.units_sold / Math.max(1, project.batch_quantity))
+  const actualProfit = body.actual_revenue - detail.cost.cost_per_item * body.units_sold
 
   return ok(c, {
     project: updated,
     sell_through_pct: sellThroughPct,
     actual_profit: Math.round(actualProfit * 100) / 100,
-    advice: sellThroughAdvice(body.units_sold, project.batch_quantity),
+    advice: sellThroughAdvice(body.units_sold, project.units_produced),
   })
 })
 

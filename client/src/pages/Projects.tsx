@@ -22,13 +22,8 @@ interface Project {
   title: string | null
   designer: string | null
   printer_id: string | null
-  time_mode: 'per_unit' | 'per_plate'
-  print_time_min_per_unit: string | null
-  units_per_plate: number | null
-  full_plate_time_min: string | null
-  partial_plate_time_min: string | null
   assembly_time_min_per_unit: string | null
-  batch_quantity: number
+  units_produced: number
   venue: string
   event_date: string | null
   packaging_cost_per_unit: string | null
@@ -52,6 +47,8 @@ interface Plate {
   id: string
   plate_number: number
   plate_name: string | null
+  print_time_min: string | null
+  batch_quantity: number
   colors: PlateColor[]
 }
 interface Part {
@@ -64,21 +61,13 @@ interface Part {
   available: number
 }
 interface CostBreakdown {
-  filament_cost_per_unit: number
-  parts_cost_per_unit: number
-  electricity_cost_per_unit: number
-  labor_cost_per_unit: number
-  packaging_cost_per_unit: number
-  cost_to_print_one: number
-  filament_cost_batch: number
-  parts_cost_batch: number
-  electricity_cost_batch: number
-  labor_cost_batch: number
-  packaging_cost_batch: number
-  cost_to_print_batch: number
+  total_filament_cost: number
+  parts_cost: number
+  electricity_cost: number
+  labor_cost: number
+  total_project_cost: number
+  cost_per_item: number
   total_print_time_min: number
-  full_plates: number
-  partial_plate_units: number
 }
 interface Tiers {
   break_even: number; fair: number; market: number; suggested: number
@@ -100,7 +89,7 @@ interface ProjectDetail {
 interface ProjectListItem {
   project: Project
   printerName: string | null
-  cost_to_print_one: number
+  cost_per_item: number
   suggested_price: number
   has_selling_info: boolean
 }
@@ -219,10 +208,10 @@ function ProjectListView({ onOpen, onNew }: { onOpen: (id: string) => void; onNe
               )}
               <div className="mt-3 pt-3 border-t border-border">
                 <p className="text-xl font-mono font-bold text-ink-primary">
-                  ${item.cost_to_print_one.toFixed(2)}
+                  ${item.cost_per_item.toFixed(2)}
                 </p>
                 <p className="text-[10px] uppercase text-ink-tertiary font-semibold tracking-wider">
-                  to print one
+                  cost per item
                 </p>
                 {item.has_selling_info && item.suggested_price > 0 && (
                   <p className="text-xs text-accent mt-1 font-mono">
@@ -453,6 +442,36 @@ function PlatesSection({ projectId, plates }: { projectId: string; plates: Plate
               onClick={() => addColor.mutate(plate.id)}>
               + Add color
             </button>
+
+            {/* Print time + batch for this plate */}
+            <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-border">
+              <div>
+                <label className="label">Print time (min)</label>
+                <input
+                  className="input font-mono text-xs py-1.5"
+                  type="number" min="0" step="any"
+                  defaultValue={plate.print_time_min ?? ''}
+                  placeholder="slicer time"
+                  onBlur={(e) => {
+                    if (e.target.value !== (plate.print_time_min ?? ''))
+                      patchPlate.mutate({ plateId: plate.id, data: { print_time_min: e.target.value === '' ? null : parseFloat(e.target.value) } })
+                  }}
+                />
+              </div>
+              <div>
+                <label className="label">Times run (batch)</label>
+                <input
+                  className="input font-mono text-xs py-1.5"
+                  type="number" min="1" step="1"
+                  defaultValue={plate.batch_quantity}
+                  onBlur={(e) => {
+                    const v = parseInt(e.target.value) || 1
+                    if (v !== plate.batch_quantity)
+                      patchPlate.mutate({ plateId: plate.id, data: { batch_quantity: v } })
+                  }}
+                />
+              </div>
+            </div>
           </div>
         ))}
 
@@ -532,117 +551,41 @@ function PartsSection({ projectId, parts }: { projectId: string; parts: Part[] }
   )
 }
 
-// ── Print time section ────────────────────────────────────────
-
-function PrintTimeSection({ project, patch }: { project: Project; patch: ReturnType<typeof useProjectPatch> }) {
-  const perPlate = project.time_mode === 'per_plate'
-  const batch = project.batch_quantity
-  const upp = project.units_per_plate ?? 0
-  const remainder = perPlate && upp > 0 ? batch % upp : 0
-
-  return (
-    <div className="card">
-      <SectionTitle icon={IconClock} title="Print time" />
-
-      {/* Mode toggle */}
-      <div className="flex gap-1 mb-3">
-        {(['per_unit', 'per_plate'] as const).map((mode) => (
-          <button key={mode}
-            onClick={() => patch.mutate({ time_mode: mode })}
-            className={[
-              'flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors',
-              project.time_mode === mode
-                ? 'bg-accent-subtle border-accent text-accent'
-                : 'bg-elevated border-border text-ink-secondary hover:border-border-strong',
-            ].join(' ')}
-          >
-            {mode === 'per_unit' ? 'Per unit' : 'Per plate'}
-          </button>
-        ))}
-      </div>
-
-      {!perPlate && (
-        <FieldInput
-          label="Print time per unit (min)"
-          type="number"
-          value={project.print_time_min_per_unit ?? ''}
-          placeholder="e.g. 45"
-          onCommit={(v) => patch.mutate({ print_time_min_per_unit: v })}
-        />
-      )}
-
-      {perPlate && (
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <FieldInput
-              label="Units per plate" type="number"
-              value={project.units_per_plate?.toString() ?? ''}
-              placeholder="e.g. 4"
-              onCommit={(v) => patch.mutate({ units_per_plate: v })}
-            />
-            <FieldInput
-              label="Full plate time (min)" type="number"
-              value={project.full_plate_time_min ?? ''}
-              placeholder="e.g. 180"
-              onCommit={(v) => patch.mutate({ full_plate_time_min: v })}
-            />
-          </div>
-          {remainder > 0 && (
-            <FieldInput
-              label={`Partial plate (${remainder} unit${remainder > 1 ? 's' : ''}) — enter time from your slicer`}
-              type="number"
-              value={project.partial_plate_time_min ?? ''}
-              placeholder="min"
-              onCommit={(v) => patch.mutate({ partial_plate_time_min: v })}
-            />
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ── Cost panel ────────────────────────────────────────────────
 
-function CostRow({ label, perUnit, batch }: { label: string; perUnit: number; batch: number }) {
+function CostRow({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex items-center justify-between text-xs py-1">
       <span className="text-ink-secondary">{label}</span>
-      <span className="font-mono text-ink-secondary">
-        ${perUnit.toFixed(2)} <span className="text-ink-tertiary">/ ${batch.toFixed(2)}</span>
-      </span>
+      <span className="font-mono text-ink-secondary">${value.toFixed(2)}</span>
     </div>
   )
 }
 
-function CostPanel({ cost, inventory }: { cost: CostBreakdown; inventory: ProjectDetail['inventory'] }) {
+function CostPanel({ cost, unitsProduced, inventory }: {
+  cost: CostBreakdown; unitsProduced: number; inventory: ProjectDetail['inventory']
+}) {
   return (
     <div className="card sticky top-4">
       <div className="text-center pb-3 mb-3 border-b border-border">
-        <p className="text-[10px] uppercase text-ink-tertiary font-semibold tracking-wider">Cost to print one</p>
-        <p className="text-2xl font-mono font-bold text-ink-primary mt-1">${cost.cost_to_print_one.toFixed(2)}</p>
+        <p className="text-[10px] uppercase text-ink-tertiary font-semibold tracking-wider">Cost per item</p>
+        <p className="text-2xl font-mono font-bold text-ink-primary mt-1">${cost.cost_per_item.toFixed(2)}</p>
         <p className="text-xs text-ink-tertiary mt-0.5">
-          batch: <span className="font-mono text-ink-secondary">${cost.cost_to_print_batch.toFixed(2)}</span>
+          total project: <span className="font-mono text-ink-secondary">${cost.total_project_cost.toFixed(2)}</span>
+          {unitsProduced > 1 && <span> ÷ {unitsProduced} items</span>}
         </p>
       </div>
 
-      <div className="flex items-center justify-between text-[10px] uppercase text-ink-tertiary font-semibold tracking-wider mb-1">
-        <span>Breakdown</span>
-        <span>per unit / batch</span>
+      <div className="text-[10px] uppercase text-ink-tertiary font-semibold tracking-wider mb-1">
+        Project totals
       </div>
-      <CostRow label="Filament" perUnit={cost.filament_cost_per_unit} batch={cost.filament_cost_batch} />
-      <CostRow label="Parts" perUnit={cost.parts_cost_per_unit} batch={cost.parts_cost_batch} />
-      <CostRow label="Electricity" perUnit={cost.electricity_cost_per_unit} batch={cost.electricity_cost_batch} />
-      <CostRow label="Labor" perUnit={cost.labor_cost_per_unit} batch={cost.labor_cost_batch} />
-      {cost.packaging_cost_per_unit > 0 && (
-        <CostRow label="Packaging" perUnit={cost.packaging_cost_per_unit} batch={cost.packaging_cost_batch} />
-      )}
+      <CostRow label="Filament" value={cost.total_filament_cost} />
+      <CostRow label="Parts" value={cost.parts_cost} />
+      <CostRow label="Electricity" value={cost.electricity_cost} />
+      <CostRow label="Labor" value={cost.labor_cost} />
 
       <div className="mt-2 pt-2 border-t border-border text-[11px] text-ink-tertiary">
         Total print time: <span className="font-mono">{(cost.total_print_time_min / 60).toFixed(1)} hrs</span>
-        {cost.full_plates > 0 && (
-          <span> · {cost.full_plates} full plate{cost.full_plates > 1 ? 's' : ''}{cost.partial_plate_units > 0 ? ` + ${cost.partial_plate_units}` : ''}</span>
-        )}
       </div>
 
       {/* Inventory check */}
@@ -659,7 +602,7 @@ function CostPanel({ cost, inventory }: { cost: CostBreakdown; inventory: Projec
         </div>
       ) : (
         <div className="mt-3 flex items-center gap-1.5 text-xs text-success">
-          <IconCircleCheck size={13} /> Enough inventory for this batch
+          <IconCircleCheck size={13} /> Enough inventory
         </div>
       )}
     </div>
@@ -683,7 +626,7 @@ function TierCard({ label, price, desc, highlight }: { label: string; price: num
 function SellingSection({ detail, patch }: { detail: ProjectDetail; patch: ReturnType<typeof useProjectPatch> }) {
   const { project, tiers, tips } = detail
   const [open, setOpen] = useState(
-    project.target_price != null || project.units_sold != null || project.batch_quantity > 1,
+    project.target_price != null || project.units_sold != null || project.units_produced > 1,
   )
   const [showEvent, setShowEvent] = useState(false)
 
@@ -709,9 +652,15 @@ function SellingSection({ detail, patch }: { detail: ProjectDetail; patch: Retur
             </div>
           )}
 
+          {/* Finished items produced — drives cost-per-item and pricing */}
+          <div>
+            <FieldInput label="Finished items produced" type="number" value={project.units_produced.toString()}
+              width="max-w-xs"
+              onCommit={(v) => patch.mutate({ units_produced: v })} />
+            <p className="text-[11px] text-ink-tertiary mt-1">How many sellable items this whole project makes.</p>
+          </div>
+
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <FieldInput label="Batch quantity" type="number" value={project.batch_quantity.toString()}
-              onCommit={(v) => patch.mutate({ batch_quantity: v })} />
             <div>
               <label className="label">Venue</label>
               <select className="input" value={project.venue} onChange={(e) => patch.mutate({ venue: e.target.value })}>
@@ -720,7 +669,7 @@ function SellingSection({ detail, patch }: { detail: ProjectDetail; patch: Retur
             </div>
             <FieldInput label="Event date" type="date" mono={false} value={project.event_date ?? ''}
               onCommit={(v) => patch.mutate({ event_date: v })} />
-            <FieldInput label="Packaging / unit ($)" type="number" value={project.packaging_cost_per_unit ?? ''}
+            <FieldInput label="Packaging / item ($)" type="number" value={project.packaging_cost_per_unit ?? ''}
               onCommit={(v) => patch.mutate({ packaging_cost_per_unit: v })} />
             <FieldInput label="Table fee ($)" type="number" value={project.table_fee ?? ''}
               onCommit={(v) => patch.mutate({ table_fee: v })} />
@@ -749,7 +698,7 @@ function SellingSection({ detail, patch }: { detail: ProjectDetail; patch: Retur
               </div>
               {project.target_price && (
                 <span className="text-xs text-ink-secondary">
-                  = ${(parseFloat(project.target_price) * project.batch_quantity).toFixed(2)} for batch of {project.batch_quantity}
+                  = ${(parseFloat(project.target_price) * project.units_produced).toFixed(2)} for {project.units_produced} item{project.units_produced > 1 ? 's' : ''}
                 </span>
               )}
             </div>
@@ -765,7 +714,7 @@ function SellingSection({ detail, patch }: { detail: ProjectDetail; patch: Retur
               <div className="p-3 rounded-lg bg-elevated border border-border text-xs">
                 <p className="font-semibold text-ink-secondary mb-1">Event results</p>
                 <div className="flex gap-4">
-                  <span>Sold: <span className="font-mono text-ink-primary">{project.units_sold}/{project.batch_quantity}</span></span>
+                  <span>Sold: <span className="font-mono text-ink-primary">{project.units_sold}/{project.units_produced}</span></span>
                   {project.actual_revenue && (
                     <span>Revenue: <span className="font-mono text-success">${parseFloat(project.actual_revenue).toFixed(2)}</span></span>
                   )}
@@ -783,7 +732,7 @@ function SellingSection({ detail, patch }: { detail: ProjectDetail; patch: Retur
 
 function PostEventModal({ project, onClose }: { project: Project; onClose: () => void }) {
   const qc = useQueryClient()
-  const [form, setForm] = useState({ units_sold: project.batch_quantity.toString(), actual_revenue: '' })
+  const [form, setForm] = useState({ units_sold: project.units_produced.toString(), actual_revenue: '' })
   const [result, setResult] = useState<{ sell_through_pct: number; actual_profit: number; advice: string } | null>(null)
 
   const complete = useMutation({
@@ -825,8 +774,8 @@ function PostEventModal({ project, onClose }: { project: Project; onClose: () =>
     <Modal title="Log sale results" onClose={onClose} width="max-w-sm">
       <form onSubmit={(e) => { e.preventDefault(); complete.mutate() }} className="space-y-4">
         <div>
-          <label className="label">Units sold (out of {project.batch_quantity})</label>
-          <input className="input font-mono" type="number" min="0" max={project.batch_quantity}
+          <label className="label">Units sold (out of {project.units_produced})</label>
+          <input className="input font-mono" type="number" min="0" max={project.units_produced}
             value={form.units_sold} onChange={(e) => setForm((f) => ({ ...f, units_sold: e.target.value }))} required />
         </div>
         <div>
@@ -954,19 +903,16 @@ function ProjectDetailView({ id, onBack }: { id: string; onBack: () => void }) {
             )}
           </div>
 
-          {/* 3. Plates */}
+          {/* 3. Plates (each plate carries its own print time + batch) */}
           <PlatesSection projectId={id} plates={detail.plates} />
 
           {/* 4. Parts */}
           <PartsSection projectId={id} parts={detail.parts} />
 
-          {/* 5. Print time */}
-          <PrintTimeSection project={project} patch={patch} />
-
-          {/* 6. Assembly */}
+          {/* 5. Assembly (per finished item) */}
           <div className="card">
             <SectionTitle icon={IconClock} title="Assembly time" />
-            <FieldInput label="Assembly time per unit (min)" type="number"
+            <FieldInput label="Assembly time per item (min)" type="number"
               value={project.assembly_time_min_per_unit ?? ''} placeholder="e.g. 5"
               onCommit={(v) => patch.mutate({ assembly_time_min_per_unit: v })} />
           </div>
@@ -974,7 +920,7 @@ function ProjectDetailView({ id, onBack }: { id: string; onBack: () => void }) {
 
         {/* Right: cost panel + selling */}
         <div className="space-y-4">
-          <CostPanel cost={detail.cost} inventory={detail.inventory} />
+          <CostPanel cost={detail.cost} unitsProduced={project.units_produced} inventory={detail.inventory} />
         </div>
 
         {/* Selling spans full width below */}

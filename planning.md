@@ -472,16 +472,10 @@ projects (
   designer text,
   -- Printer (nullable; auto-set if user has exactly 1 printer)
   printer_id uuid REFERENCES printers(id),
-  -- Print time
-  time_mode text DEFAULT 'per_unit', -- per_unit | per_plate
-  print_time_min_per_unit numeric(8,1),     -- used when time_mode = per_unit
-  units_per_plate integer,                  -- used when time_mode = per_plate
-  full_plate_time_min numeric(8,1),         -- time for one full plate
-  partial_plate_time_min numeric(8,1),      -- user-entered from slicer when batch doesn't divide evenly
-  -- Assembly
+  -- Assembly (print time now lives per-plate, see project_plates below)
   assembly_time_min_per_unit numeric(8,1) DEFAULT 0,
   -- Selling section (optional)
-  batch_quantity integer DEFAULT 1,
+  units_produced integer DEFAULT 1, -- how many finished items the whole project yields (user enters; only they know how many came off each plate)
   venue text,                       -- farmers_market | etsy | local | convention | other
   event_date date,
   packaging_cost_per_unit numeric(8,2) DEFAULT 0,
@@ -494,12 +488,16 @@ projects (
   created_at timestamptz DEFAULT now()
 )
 
--- Plates within a project (Owl Lamp = 2 plates: "Body", "Back")
+-- Plates within a project. A plate is the atomic unit: whatever is physically arranged
+-- on it, with its real grams per color, its real slicer print time, and how many times
+-- you run it. Everything rolls up from plates. (Owl Lamp = 2 plates: "Body", "Back")
 project_plates (
   id uuid PK,
   project_id uuid REFERENCES projects(id) ON DELETE CASCADE,
   plate_number integer NOT NULL,
-  plate_name text,                  -- "Body", "Back", etc.
+  plate_name text,                  -- "Body", "Back", "9 Fidgets", etc.
+  print_time_min numeric(8,1),      -- real slicer time to print this plate ONCE (whatever is on it)
+  batch_quantity integer DEFAULT 1, -- how many times you run this exact plate
   sort_order integer DEFAULT 0
 )
 
@@ -863,33 +861,31 @@ Every page with affiliate links shows:
 
 ### Cost Calculation (now in projectCost.ts)
 
-Per-unit cost:
+Everything rolls up from plates. Each plate carries its own colors (filament + grams), its real slicer print time, and a batch (how many times it's run).
+
 ```
-filament_cost = sum across all plates, all colors of:
-    color.grams_used × (filament_profile cost_per_gram from latest purchase)
-parts_cost = sum of: part.quantity_per_unit × part cost_per_unit
+-- Per plate, multiplied by that plate's batch:
+plate_filament_cost = sum over plate's colors of:
+    color.grams_used × (filament_profile cost_per_gram)   -- cost_per_gram = cost_per_spool / net_spool_weight_g
+plate_time_min      = plate.print_time_min × plate.batch_quantity
+plate_filament_total = plate_filament_cost × plate.batch_quantity
 
-total_print_time_min:
-  if time_mode = per_unit:
-    print_time_min_per_unit × batch_quantity
-  if time_mode = per_plate:
-    full_plates = floor(batch_quantity / units_per_plate)
-    remainder   = batch_quantity % units_per_plate
-    total = (full_plates × full_plate_time_min)
-          + (remainder > 0 ? partial_plate_time_min : 0)
-    -- partial_plate_time_min is entered by the user from their slicer
+-- Project totals:
+total_filament_cost = sum of plate_filament_total across all plates
+total_print_time_min = sum of plate_time_min across all plates
+parts_cost = sum of: part.quantity_per_unit × part cost_per_unit   -- (per project; from latest workshop purchase)
 
-electricity_cost = total_print_time_hrs × printer_wattage_kw × electricity_rate
+electricity_cost = (total_print_time_min / 60) × printer_wattage_kw × electricity_rate
   -- printer_wattage from project.printer_id (auto-set if user has only 1 printer)
-labor_cost = ((total_print_time_min + assembly_time_min × batch_quantity) / 60) × labor_rate
+labor_cost = ((total_print_time_min + assembly_time_min_per_unit × units_produced) / 60) × labor_rate
 
-cost_to_print_one   = filament_cost + parts_cost + (electricity_cost + labor_cost) / batch_quantity
-cost_to_print_batch = (filament_cost + parts_cost) × batch_quantity + electricity_cost + labor_cost
+total_project_cost = total_filament_cost + parts_cost + electricity_cost + labor_cost
+cost_per_item = total_project_cost / units_produced   -- units_produced entered by user in selling section
 ```
 
-Pricing tiers (shown only in the collapsible selling section): break_even (1×), fair (2×), market (3×), suggested (clean round-up). Plus packaging_cost_per_unit, table_fee (spread across batch), platform_fee_pct. Post-event tracking: units_sold + actual_revenue → sell-through % + advice.
+Pricing tiers (shown only in the collapsible selling section, computed on cost_per_item): break_even (1×), fair (2×), market (3×), suggested (clean round-up). Plus packaging_cost_per_unit, table_fee (spread across units_produced), platform_fee_pct. Post-event tracking: units_sold + actual_revenue → sell-through % + advice.
 
-**Why per-plate matters:** print time doesn't scale linearly when multiple units fit on one plate (shared heat-up, single purge, travel moves). A piece that's 45 min solo might be 6h37m for 9-on-a-plate. The user enters the actual measured plate time from their slicer rather than the app guessing. Partial plates (when batch doesn't divide evenly) get their own user-entered slicer time.
+**Why per-plate is the model:** a plate is one physical print run. Whatever's on it — one big item or nine small ones — the user enters the real slicer grams and time for that plate. Print time never has to be guessed or scaled; it's always the measured truth. Batch = how many times you run that plate. The app can't know how many finished items result (only the user knows 9 fidgets came off one plate), so `units_produced` is entered by the user in the selling section to compute cost-per-item.
 
 ---
 
@@ -1192,23 +1188,35 @@ Common M2/M3/M4 screw kits with known contents by SKU
 - [x] License check — CC license parsed → stored in saved_projects.notes, badge on card (Commercial OK / Personal only / Unknown), red warning strip in quote UI when commercial_ok: false
 - [x] @anthropic-ai/sdk installed, ANTHROPIC_API_KEY documented
 
-**⚠️ SUPERSEDED by Phase 4.5** — URL parsing and the affiliate/quote system below were removed in the Projects/Quotes merge. Kept here for history.
+**⚠️ ACTION ITEM: Add ANTHROPIC_API_KEY to Vercel env vars** — parser returns empty component list in production without it (logs warning, still updates metadata + license, just finds no parts)
+
+**🎉 FULL LOOP LIVE: paste MakerWorld URL → AI parses → inventory check → buy links → create quote → price batch → sell**
 
 ### Phase 4.5 — Projects/Quotes merge + remove parsing ✅ COMPLETE
 
-Major structural refactor based on real usage feedback:
-- [x] Removed URL parsing entirely — deleted projectParser.ts, componentExtractor.ts, affiliate.ts, quoteCalculator.ts, quotes route; dropped parse_usage + project_components tables; removed @anthropic-ai/sdk dependency. (ANTHROPIC_API_KEY kept in .env.example but unused.) Reason: MakerWorld/Cloudflare blocked it — only 1 of 4 sites allowed parsing.
-- [x] Merged Projects + Quotes into one unified `projects` table + page (dropped quote_projects, quote_line_items, saved_projects)
-- [x] New nested structure: project_plates → project_plate_colors (filament + grams) → project_parts (workshop items)
-- [x] Plate→color model: each plate has 1+ colors, each color maps to inventory filament + grams. Grows dynamically (add/remove plates, add/remove colors per plate)
-- [x] Print time toggle: per_unit (multiplies linearly) OR per_plate (units_per_plate + full_plate_time + user-entered partial_plate_time from slicer when batch doesn't divide evenly)
-- [x] Printer selector — only shown if user has 2+ printers; auto-assigns the single printer on create and shows "Printing on: [name]" as text
-- [x] Always-on cost-to-print panel on every project (filament + parts + electricity + labor + packaging), per-unit AND batch, with inventory shortfall check
-- [x] Collapsible selling section: batch qty, venue, event date, packaging, table fee, platform fee %, 4 pricing tiers, post-event tracking with sell-through advice + beginner tips
-- [x] server/src/lib/projectCost.ts — pure cost engine reading plates/colors/parts; tiers + sell-through + shortfalls
-- [x] Removed Quotes from sidebar nav + dashboard; /quotes redirects to /projects
-- [x] "Cost & pricing settings" section in Settings (electricity rate, wattage, labor rate, markup, venue, packaging) — now applies to all projects
-- [x] Migration 0003_unified_projects.sql applied directly via Supabase (drops + creates). Zero TypeScript errors; full build clean.
+Major structural refactor based on real usage feedback. Shipped in 2 commits (adb9f3b backend, ca49958 client), live on Vercel:
+- [x] Removed URL parsing entirely (deleted projectParser, componentExtractor, affiliate, quoteCalculator, quotes route, all parse/confirm endpoints, @anthropic-ai/sdk). Reason: MakerWorld/Cloudflare blocked it — only 1 of 4 sites allowed parsing.
+- [x] Merged Projects + Quotes into one unified `projects` table + page (dropped quote_projects, quote_line_items, saved_projects, project_components, parse_usage)
+- [x] Nested structure: project_plates → project_plate_colors (filament + grams) → project_parts (workshop items). Migration 0003 applied directly via Supabase, verified
+- [x] Plate→color model grows dynamically (add plates, add colors per plate)
+- [x] Print time toggle: per_unit (linear) OR per_plate (units_per_plate + full_plate_time + user-entered partial_plate_time when batch doesn't divide evenly)
+- [x] Printer selector — hidden for single-printer users, auto-uses their printer
+- [x] Always-on cost-to-print panel (filament + parts + electricity + labor), per-unit AND batch, live inventory check
+- [x] Collapsible selling section: batch qty, venue, event date, packaging, table fee, platform fee %, pricing tiers, post-event tracking, beginner tips
+- [x] projectCost.ts cost engine reads plates/colors/parts
+- [x] Removed Quotes from sidebar — /quotes redirects to /projects
+- [x] "Quote settings" → "Cost & pricing settings" in Settings, points at /api/settings
+
+**⚠️ KNOWN GAP — per-printer wattage:** electricity cost currently uses a single `default_printer_wattage_w` from settings regardless of which printer is selected. Printers don't have a wattage column yet. To make electricity cost accurate per printer, add `wattage_w` to the printers table and have projectCost.ts read from the selected printer. (On the post-merge enhancement list.)
+
+### Phase 4.6 — Plate-based print time ✅ COMPLETE
+
+Simplified the print-time model: print time moved out of the project and onto each plate; each plate has its own batch quantity. Migration 0004 applied directly via Supabase.
+- [x] Schema: dropped `time_mode`, `print_time_min_per_unit`, `units_per_plate`, `full_plate_time_min`, `partial_plate_time_min`, old `batch_quantity` from `projects`. Added `units_produced` (selling section). Added `print_time_min` + `batch_quantity` to `project_plates`.
+- [x] Cost engine rewrite — removed per_unit/per_plate toggle + partial-plate math. New model: per plate × its batch (filament cost + print time); project totals sum across plates; parts × units_produced; electricity/labor from total print time + assembly; cost_per_item = total ÷ units_produced.
+- [x] Inventory check: filament per color = grams × that plate's batch (summed per profile across plates); parts = qty_per_unit × units_produced.
+- [x] UI: removed the separate print-time section + toggle. Each plate card now holds name → colors → print time → times-run (batch). Cost panel shows total project cost + cost-per-item with breakdown (filament/parts/electricity/labor). Selling section gained "Finished items produced" field; tiers compute on cost_per_item; assembly stays at project level (per finished item).
+- [x] Zero TypeScript errors; full build clean; server smoke-tested.
 
 ### Phase 5 — SaaS launch
 - [ ] Remove allowlist → open signups

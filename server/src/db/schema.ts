@@ -364,18 +364,11 @@ export const projects = pgTable('projects', {
   // Printer
   printer_id: uuid('printer_id').references(() => printers.id, { onDelete: 'set null' }),
 
-  // Print time
-  time_mode: text('time_mode').default('per_unit').notNull(), // per_unit | per_plate
-  print_time_min_per_unit: numeric('print_time_min_per_unit', { precision: 8, scale: 1 }),
-  units_per_plate: integer('units_per_plate'),
-  full_plate_time_min: numeric('full_plate_time_min', { precision: 8, scale: 1 }),
-  partial_plate_time_min: numeric('partial_plate_time_min', { precision: 8, scale: 1 }),
-
-  // Assembly
+  // Assembly (per finished item)
   assembly_time_min_per_unit: numeric('assembly_time_min_per_unit', { precision: 8, scale: 1 }),
 
   // Selling
-  batch_quantity: integer('batch_quantity').default(1).notNull(),
+  units_produced: integer('units_produced').default(1).notNull(), // finished sellable items the whole project yields
   venue: text('venue').default('other').notNull(), // farmers_market | etsy | local | convention | other
   event_date: date('event_date'),
   packaging_cost_per_unit: numeric('packaging_cost_per_unit', { precision: 8, scale: 2 }).default('0'),
@@ -396,6 +389,8 @@ export const projectPlates = pgTable('project_plates', {
     .references(() => projects.id, { onDelete: 'cascade' }),
   plate_number: integer('plate_number').default(1).notNull(),
   plate_name: text('plate_name'),
+  print_time_min: numeric('print_time_min', { precision: 8, scale: 1 }), // slicer time to print this plate once
+  batch_quantity: integer('batch_quantity').default(1).notNull(),         // how many times this plate is run
 })
 
 export const projectPlateColors = pgTable('project_plate_colors', {
