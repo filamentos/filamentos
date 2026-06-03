@@ -877,7 +877,7 @@ parts_cost = sum of: part.quantity_per_unit × part cost_per_unit   -- (per proj
 
 electricity_cost = (total_print_time_min / 60) × printer_wattage_kw × electricity_rate
   -- printer_wattage from project.printer_id (auto-set if user has only 1 printer)
-labor_cost = ((total_print_time_min + assembly_time_min_per_unit × units_produced) / 60) × labor_rate
+labor_cost = ((assembly_time_min_per_unit × units_produced) / 60) × labor_rate   -- LABOR = ASSEMBLY ONLY. Print time is the machine working, not the user. Never count print time as labor.
 
 total_project_cost = total_filament_cost + parts_cost + electricity_cost + labor_cost
 cost_per_item = total_project_cost / units_produced   -- units_produced entered by user in selling section
@@ -1208,15 +1208,6 @@ Major structural refactor based on real usage feedback. Shipped in 2 commits (ad
 - [x] "Quote settings" → "Cost & pricing settings" in Settings, points at /api/settings
 
 **⚠️ KNOWN GAP — per-printer wattage:** electricity cost currently uses a single `default_printer_wattage_w` from settings regardless of which printer is selected. Printers don't have a wattage column yet. To make electricity cost accurate per printer, add `wattage_w` to the printers table and have projectCost.ts read from the selected printer. (On the post-merge enhancement list.)
-
-### Phase 4.6 — Plate-based print time ✅ COMPLETE
-
-Simplified the print-time model: print time moved out of the project and onto each plate; each plate has its own batch quantity. Migration 0004 applied directly via Supabase.
-- [x] Schema: dropped `time_mode`, `print_time_min_per_unit`, `units_per_plate`, `full_plate_time_min`, `partial_plate_time_min`, old `batch_quantity` from `projects`. Added `units_produced` (selling section). Added `print_time_min` + `batch_quantity` to `project_plates`.
-- [x] Cost engine rewrite — removed per_unit/per_plate toggle + partial-plate math. New model: per plate × its batch (filament cost + print time); project totals sum across plates; parts × units_produced; electricity/labor from total print time + assembly; cost_per_item = total ÷ units_produced.
-- [x] Inventory check: filament per color = grams × that plate's batch (summed per profile across plates); parts = qty_per_unit × units_produced.
-- [x] UI: removed the separate print-time section + toggle. Each plate card now holds name → colors → print time → times-run (batch). Cost panel shows total project cost + cost-per-item with breakdown (filament/parts/electricity/labor). Selling section gained "Finished items produced" field; tiers compute on cost_per_item; assembly stays at project level (per finished item).
-- [x] Zero TypeScript errors; full build clean; server smoke-tested.
 
 ### Phase 5 — SaaS launch
 - [ ] Remove allowlist → open signups

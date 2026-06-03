@@ -91,10 +91,10 @@ export function calculateCost(input: CostInputs): CostBreakdown {
     ? totalPrintTimeHrs * wattageKw * input.electricity_rate_per_kwh
     : 0
 
-  // ── Labor: print time + assembly (per item × units produced) ──
+  // ── Labor: assembly only (print time is unattended machine time, not labor) ──
   const assemblyTotalMin = (input.assembly_time_min_per_unit ?? 0) * unitsProduced
   const laborCost = input.include_labor
-    ? ((totalPrintTimeMin + assemblyTotalMin) / 60) * input.labor_rate_per_hr
+    ? (assemblyTotalMin / 60) * input.labor_rate_per_hr
     : 0
 
   const totalProjectCost = totalFilamentCost + partsCost + electricityCost + laborCost

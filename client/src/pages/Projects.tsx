@@ -340,6 +340,60 @@ function FieldInput({
   )
 }
 
+// ── Print time input (hours + minutes → total minutes) ───────
+
+function PrintTimeInput({ totalMin, onCommit }: {
+  totalMin: string | null
+  onCommit: (totalMinutes: number | null) => void
+}) {
+  const initial = totalMin != null && totalMin !== '' ? parseFloat(totalMin) : null
+  const [hours, setHours] = useState(initial != null ? Math.floor(initial / 60).toString() : '')
+  const [mins, setMins] = useState(initial != null ? Math.round(initial % 60).toString() : '')
+
+  // Re-sync when the server value changes (e.g. after refetch)
+  useEffect(() => {
+    const v = totalMin != null && totalMin !== '' ? parseFloat(totalMin) : null
+    setHours(v != null ? Math.floor(v / 60).toString() : '')
+    setMins(v != null ? Math.round(v % 60).toString() : '')
+  }, [totalMin])
+
+  function commit(h: string, m: string) {
+    if (h === '' && m === '') { onCommit(null); return }
+    const total = (parseInt(h) || 0) * 60 + (parseInt(m) || 0)
+    if (total !== (initial ?? -1)) onCommit(total)
+  }
+
+  return (
+    <div>
+      <label className="label">Print time</label>
+      <div className="flex items-center gap-1.5">
+        <div className="relative flex-1">
+          <input
+            className="input font-mono text-xs py-1.5 pr-6"
+            type="number" min="0" step="1"
+            value={hours}
+            placeholder="0"
+            onChange={(e) => setHours(e.target.value)}
+            onBlur={() => commit(hours, mins)}
+          />
+          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-ink-tertiary">h</span>
+        </div>
+        <div className="relative flex-1">
+          <input
+            className="input font-mono text-xs py-1.5 pr-7"
+            type="number" min="0" max="59" step="1"
+            value={mins}
+            placeholder="0"
+            onChange={(e) => setMins(e.target.value)}
+            onBlur={() => commit(hours, mins)}
+          />
+          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-ink-tertiary">m</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Plates section ────────────────────────────────────────────
 
 function PlatesSection({ projectId, plates }: { projectId: string; plates: Plate[] }) {
@@ -445,19 +499,10 @@ function PlatesSection({ projectId, plates }: { projectId: string; plates: Plate
 
             {/* Print time + batch for this plate */}
             <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-border">
-              <div>
-                <label className="label">Print time (min)</label>
-                <input
-                  className="input font-mono text-xs py-1.5"
-                  type="number" min="0" step="any"
-                  defaultValue={plate.print_time_min ?? ''}
-                  placeholder="slicer time"
-                  onBlur={(e) => {
-                    if (e.target.value !== (plate.print_time_min ?? ''))
-                      patchPlate.mutate({ plateId: plate.id, data: { print_time_min: e.target.value === '' ? null : parseFloat(e.target.value) } })
-                  }}
-                />
-              </div>
+              <PrintTimeInput
+                totalMin={plate.print_time_min}
+                onCommit={(total) => patchPlate.mutate({ plateId: plate.id, data: { print_time_min: total } })}
+              />
               <div>
                 <label className="label">Times run (batch)</label>
                 <input
