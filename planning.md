@@ -242,7 +242,10 @@ filament_profiles (
   color_name text,
   color_hex text,                   -- for swatch display
   diameter_mm numeric(4,2) DEFAULT 1.75,
-  empty_spool_weight_g numeric(6,1),
+  empty_spool_weight_g numeric(6,1),  -- TARE weight. Ideally measured from the user's own empty spools (averaged
+                                      -- over empty_spool_weight_samples). Falls back to manufacturer estimate if never measured.
+  empty_spool_weight_samples jsonb DEFAULT '[]', -- history of measured empty-spool weights: [{weight_g, measured_at}]
+                                      -- empty_spool_weight_g = average of these once any exist
   net_spool_weight_g numeric(6,1) DEFAULT 1000,
   cost_per_spool numeric(8,2),
   currency text DEFAULT 'USD',
@@ -289,7 +292,7 @@ weight_logs (
   user_id uuid REFERENCES users(id) ON DELETE CASCADE,
   logged_at timestamptz DEFAULT now(),
   gross_weight_g numeric(6,1) NOT NULL,
-  event_type text DEFAULT 'weigh',  -- open | weigh | pre_print | post_print | empty
+  event_type text DEFAULT 'weigh',  -- open | weigh | pre_print | post_print | empty | empty_spool_tare
   slicer_estimate_g numeric(6,1),   -- optional slicer estimate before print
   notes text
 )
@@ -1239,7 +1242,7 @@ Major structural refactor based on real usage feedback. Shipped in 2 commits (ad
 
 **⚠️ KNOWN GAP — per-printer wattage:** electricity cost currently uses a single `default_printer_wattage_w` from settings regardless of which printer is selected. Printers don't have a wattage column yet. To make electricity cost accurate per printer, add `wattage_w` to the printers table and have projectCost.ts read from the selected printer. (On the post-merge enhancement list.)
 
-### Phase 4.6 — Inventory consolidation (structural simplification) 🔧 PLANNED
+### Phase 4.6 — Inventory consolidation (structural simplification) ✅ COMPLETE
 
 Based on real usage — collapse redundant pages into where the work actually happens:
 
@@ -1261,6 +1264,29 @@ Based on real usage — collapse redundant pages into where the work actually ha
 - Drop the kits + kit_components tables (or repurpose as workshop_items). Existing kit data not preserved (user starting fresh).
 
 After this: the sidebar is leaner — Filament, Printers, Workshop, Projects, Settings. Inventory and purchasing happen in one place each.
+
+**SHIPPED (3 commits):** Final sidebar = Dashboard · Filament · Printers · Workshop · Projects (+ Alerts, Settings). Spool order flow live (ordered → received). Purchases page removed, price history now expandable on each filament profile + workshop item card via reusable PriceHistory component. Kits page/tables removed; print kits are now plain workshop items. Two retained features (NOT the removed print-kit system): `workshop/import-kit` assortment import (box of mixed M3 screws → many items) and `source_kit_id` column. Legacy `print_kit` item_type kept in Spend chart so historical purchase data still aggregates.
+
+### Phase 4.7 — Spool weight lifecycle + profile edit/delete 🔧 PLANNED
+
+Fixes the weight-tracking model and adds profile management. The core principle: inventory weight is always the **bare spool** (filament + core, no packaging), measured consistently.
+
+**Bug fix — weight logged isn't referenced on the spool:** logging a weight updates the log but not the spool's displayed current weight / level. Fix the link so the spool's current_gross_weight_g reflects the latest weight log.
+
+**Spool weight lifecycle:**
+1. **Add spool → Sealed / New** (reserve or ordered). A sealed spool is NOT weighed for inventory — it's factory-sealed in a vacuum bag with silica, so any weight would include packaging. Display "Sealed — not yet opened" (not "Not weighed"). For forward-looking inventory math, a sealed reserve spool counts as **full = net_spool_weight_g** (assume full since unopened).
+2. **Promote to active → weigh the BARE spool** (prompt: "Remove packaging and weigh the spool"). This first measurement = the true `opening_gross_weight_g` and current_gross_weight_g. Inventory now tracks real grams. (Optional: an as-received benchmark weight may be logged at receive, but it's a record only and never feeds inventory math, because it includes packaging.)
+3. **After each print → re-weigh bare.** current_gross_weight_g updates; remaining = gross − empty_spool_weight_g.
+4. **Spool empty → capture empty-spool tare.** Offer to weigh the empty spool and save it to the PROFILE. Stored as a sample in `empty_spool_weight_samples` (jsonb history); `empty_spool_weight_g` = average of all samples. This makes every current + future spool of that profile more accurate, using the user's own measured tare instead of a manufacturer estimate.
+   - When a new empty measurement differs significantly from the running average (e.g. >10g), nudge the user ("This empty weight differs notably from your average — did the manufacturer change the spool?") before adding it, since a big drift signals a spool redesign.
+
+**Manual "Make active" action:** reserve spools get a "Promote to active" button (separate from the existing auto-swap flow) so the user can manually pick which reserve spool becomes active. Triggers the bare-spool weigh-in from step 2.
+
+**Profile edit + delete:**
+- Each filament profile gets an **edit** action (brand, material, variant, color name, color hex/swatch, net weight, thresholds, etc.)
+- Each profile gets a **delete** action with confirmation (cascades to its spools — warn clearly)
+
+**Remaining-filament math:** `remaining_g = current_gross_weight_g − empty_spool_weight_g` when the spool has been weighed; sealed spools report net_spool_weight_g for planning. Display "Sealed — not yet opened" for unweighed sealed spools rather than "Not weighed".
 
 ### Phase 5 — SaaS launch
 - [ ] Remove allowlist → open signups

@@ -88,6 +88,7 @@ function SpoolRow({ spool, onWeigh, onSwap, onReceive }: SpoolRowProps) {
   }
 
   const remaining = spool.filament_remaining_g
+  const gross = spool.current_gross_weight_g != null ? Number(spool.current_gross_weight_g) : null
   const isOrdered = spool.status === 'ordered'
 
   return (
@@ -104,6 +105,10 @@ function SpoolRow({ spool, onWeigh, onSwap, onReceive }: SpoolRowProps) {
         ) : remaining != null ? (
           <span className="mono text-xs text-ink-secondary">
             {remaining.toFixed(1)} g left
+          </span>
+        ) : gross != null ? (
+          <span className="mono text-xs text-ink-secondary">
+            {gross.toFixed(1)} g gross
           </span>
         ) : (
           <span className="text-xs text-ink-tertiary">Not weighed</span>
