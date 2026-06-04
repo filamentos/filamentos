@@ -11,6 +11,9 @@ import {
   IconDroplet,
   IconTruck,
   IconPackageImport,
+  IconPlayerPlay,
+  IconPencil,
+  IconTrash,
 } from '@tabler/icons-react'
 import { useAuthStore } from '../stores/auth'
 import AppShell from '../components/AppShell'
@@ -25,6 +28,10 @@ import {
   useCreateProfile,
   useCreateSpool,
   useReceiveSpool,
+  usePromoteSpool,
+  useEmptyTare,
+  useUpdateProfile,
+  useDeleteProfile,
 } from '../hooks/useFilament'
 import type {
   FilamentProfileWithCounts,
@@ -72,9 +79,11 @@ interface SpoolRowProps {
   onWeigh: (spool: SpoolWithRemaining) => void
   onSwap: (spool: SpoolWithRemaining) => void
   onReceive: (spool: SpoolWithRemaining) => void
+  onPromote: (spool: SpoolWithRemaining) => void
+  onEmptyTare: (spool: SpoolWithRemaining) => void
 }
 
-function SpoolRow({ spool, onWeigh, onSwap, onReceive }: SpoolRowProps) {
+function SpoolRow({ spool, onWeigh, onSwap, onReceive, onPromote, onEmptyTare }: SpoolRowProps) {
   const statusBadge = () => {
     switch (spool.status) {
       case 'ordered':         return <Badge variant="warning" icon={IconTruck}>On order</Badge>
@@ -90,6 +99,8 @@ function SpoolRow({ spool, onWeigh, onSwap, onReceive }: SpoolRowProps) {
   const remaining = spool.filament_remaining_g
   const gross = spool.current_gross_weight_g != null ? Number(spool.current_gross_weight_g) : null
   const isOrdered = spool.status === 'ordered'
+  // A reserve/ordered spool with no measured weight is factory-sealed — not yet opened.
+  const isSealed = (spool.status === 'reserve' || spool.status === 'partial_reserve' || isOrdered) && gross == null
 
   return (
     <div className="flex items-center gap-3 py-2.5 border-b border-border last:border-0 group">
@@ -97,11 +108,13 @@ function SpoolRow({ spool, onWeigh, onSwap, onReceive }: SpoolRowProps) {
       <div className="w-20 shrink-0">{statusBadge()}</div>
 
       {/* Remaining weight */}
-      <div className="w-32 shrink-0">
+      <div className="w-40 shrink-0">
         {isOrdered ? (
           <span className="text-xs text-ink-tertiary">
             {spool.ordered_date ? `Ordered ${new Date(spool.ordered_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : 'Not yet received'}
           </span>
+        ) : isSealed ? (
+          <span className="text-xs text-ink-tertiary">Sealed — not yet opened</span>
         ) : remaining != null ? (
           <span className="mono text-xs text-ink-secondary">
             {remaining.toFixed(1)} g left
@@ -117,7 +130,7 @@ function SpoolRow({ spool, onWeigh, onSwap, onReceive }: SpoolRowProps) {
 
       {/* Progress bar */}
       <div className="flex-1 min-w-0">
-        {!isOrdered && spool.status !== 'empty' && spool.status !== 'archived' ? (
+        {!isOrdered && !isSealed && spool.status !== 'empty' && spool.status !== 'archived' ? (
           <FilamentProgress pct={spool.filament_remaining_pct} compact />
         ) : (
           <div className="h-1 w-full rounded-full bg-elevated opacity-40" />
@@ -149,8 +162,17 @@ function SpoolRow({ spool, onWeigh, onSwap, onReceive }: SpoolRowProps) {
             <IconPackageImport size={13} /> Mark received
           </button>
         )}
+        {(spool.status === 'reserve' || spool.status === 'partial_reserve') && (
+          <button
+            onClick={() => onPromote(spool)}
+            className="btn-secondary text-xs py-1 px-2"
+            title="Promote to active (weigh the bare spool)"
+          >
+            <IconPlayerPlay size={13} /> Promote to active
+          </button>
+        )}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          {(spool.status === 'active' || spool.status === 'reserve' || spool.status === 'partial_reserve') && (
+          {spool.status === 'active' && (
             <button onClick={() => onWeigh(spool)} className="btn-icon" title="Log weight">
               <IconWeight size={14} />
             </button>
@@ -158,6 +180,11 @@ function SpoolRow({ spool, onWeigh, onSwap, onReceive }: SpoolRowProps) {
           {spool.status === 'active' && (
             <button onClick={() => onSwap(spool)} className="btn-icon" title="Spool swap">
               <IconRefresh size={14} />
+            </button>
+          )}
+          {spool.status === 'active' && (
+            <button onClick={() => onEmptyTare(spool)} className="btn-icon" title="Mark empty + weigh empty spool (capture tare)">
+              <IconCircleCheck size={14} />
             </button>
           )}
         </div>
@@ -186,9 +213,13 @@ interface ProfileCardProps {
   onSwap: (spool: SpoolWithRemaining) => void
   onAddSpool: (profile: FilamentProfileWithCounts) => void
   onReceive: (spool: SpoolWithRemaining) => void
+  onPromote: (spool: SpoolWithRemaining) => void
+  onEmptyTare: (spool: SpoolWithRemaining) => void
+  onEdit: (profile: FilamentProfileWithCounts) => void
+  onDelete: (profile: FilamentProfileWithCounts) => void
 }
 
-function ProfileCard({ profile, onWeigh, onSwap, onAddSpool, onReceive }: ProfileCardProps) {
+function ProfileCard({ profile, onWeigh, onSwap, onAddSpool, onReceive, onPromote, onEmptyTare, onEdit, onDelete }: ProfileCardProps) {
   const [expanded, setExpanded] = useState(false)
 
   const { reserve, partial_reserve, active, ordered } = profile.spool_counts
@@ -242,6 +273,20 @@ function ProfileCard({ profile, onWeigh, onSwap, onAddSpool, onReceive }: Profil
           >
             <IconPlus size={15} />
           </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onEdit(profile) }}
+            className="btn-icon"
+            title="Edit profile"
+          >
+            <IconPencil size={14} />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(profile) }}
+            className="btn-icon hover:text-danger"
+            title="Delete profile"
+          >
+            <IconTrash size={14} />
+          </button>
         </div>
       </div>
 
@@ -252,6 +297,8 @@ function ProfileCard({ profile, onWeigh, onSwap, onAddSpool, onReceive }: Profil
           onWeigh={onWeigh}
           onSwap={onSwap}
           onReceive={onReceive}
+          onPromote={onPromote}
+          onEmptyTare={onEmptyTare}
         />
       )}
     </div>
@@ -406,11 +453,15 @@ function ProfileSpoolList({
   onWeigh,
   onSwap,
   onReceive,
+  onPromote,
+  onEmptyTare,
 }: {
   profile: FilamentProfileWithCounts
   onWeigh: (s: SpoolWithRemaining) => void
   onSwap: (s: SpoolWithRemaining) => void
   onReceive: (s: SpoolWithRemaining) => void
+  onPromote: (s: SpoolWithRemaining) => void
+  onEmptyTare: (s: SpoolWithRemaining) => void
 }) {
   const { data, isLoading } = useProfile(profile.id)
   const user = useAuthStore((s) => s.user)
@@ -456,6 +507,8 @@ function ProfileSpoolList({
           onWeigh={onWeigh}
           onSwap={onSwap}
           onReceive={onReceive}
+          onPromote={onPromote}
+          onEmptyTare={onEmptyTare}
         />
       ))}
 
@@ -831,6 +884,129 @@ function ReceiveModal({ spool, onClose }: { spool: SpoolWithRemaining; onClose: 
   )
 }
 
+// ── Promote to active (bare-spool weigh-in) modal ────────────
+
+function PromoteModal({ spool, onClose }: { spool: SpoolWithRemaining; onClose: () => void }) {
+  const promote = usePromoteSpool(spool.id)
+  const [weight, setWeight] = useState('')
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const g = parseFloat(weight)
+    if (isNaN(g) || g < 0) return
+    await promote.mutateAsync({ bare_gross_weight_g: g })
+    onClose()
+  }
+
+  return (
+    <Modal title="Promote to Active" onClose={onClose}>
+      <div className="mb-4 p-3 rounded-md bg-info-bg border border-border text-xs text-info">
+        <p className="font-semibold mb-1 text-ink-primary">Remove all packaging and weigh the bare spool</p>
+        Take the spool out of its vacuum bag, remove silica and any wrapping, and put the
+        bare spool (filament + core) on the scale. This first measurement becomes the
+        baseline for remaining-gram tracking.
+      </div>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="label">Bare spool gross weight (g)</label>
+          <input
+            type="number" step="0.1" min="0" required autoFocus
+            value={weight} onChange={(e) => setWeight(e.target.value)}
+            className="input font-mono" placeholder="e.g. 1240.0"
+          />
+        </div>
+
+        {promote.error && (
+          <p className="text-xs text-danger bg-danger-bg rounded-md px-3 py-2">
+            {(promote.error as Error).message}
+          </p>
+        )}
+
+        <div className="flex gap-2 pt-1">
+          <button type="submit" disabled={promote.isPending} className="btn-primary flex-1 justify-center">
+            {promote.isPending ? 'Saving…' : 'Make active'}
+          </button>
+          <button type="button" onClick={onClose} className="btn-ghost">Cancel</button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+// ── Empty-spool tare capture modal ───────────────────────────
+
+function EmptyTareModal({ spool, onClose }: { spool: SpoolWithRemaining; onClose: () => void }) {
+  const tare = useEmptyTare(spool.id)
+  const [weight, setWeight] = useState('')
+  const [pending, setPending] = useState<{ new_weight_g: number; current_average_g: number } | null>(null)
+
+  async function submit(confirm: boolean) {
+    const g = parseFloat(weight)
+    if (isNaN(g) || g < 0) return
+    const res = await tare.mutateAsync({ empty_weight_g: g, confirm })
+    if (res.needs_confirmation) {
+      setPending({ new_weight_g: res.new_weight_g!, current_average_g: res.current_average_g! })
+      return
+    }
+    onClose()
+  }
+
+  return (
+    <Modal title="Weigh Empty Spool" onClose={onClose}>
+      <div className="mb-4 p-3 rounded-md bg-info-bg border border-border text-xs text-info">
+        <p className="font-semibold mb-1 text-ink-primary">Weigh the empty bare spool</p>
+        Once the filament's gone, weigh the bare empty spool. We save it to this profile and
+        average it with past measurements, so every spool's remaining-gram math gets more accurate.
+        This also marks the spool empty.
+      </div>
+      <form onSubmit={(e) => { e.preventDefault(); submit(false) }} className="space-y-4">
+        <div>
+          <label className="label">Empty spool weight (g)</label>
+          <input
+            type="number" step="0.1" min="0" required autoFocus
+            value={weight} onChange={(e) => { setWeight(e.target.value); setPending(null) }}
+            className="input font-mono" placeholder="e.g. 218.0"
+          />
+        </div>
+
+        {pending && (
+          <div className="p-3 rounded-md bg-warning-bg border border-border text-xs text-warning space-y-2">
+            <p>
+              This empty weight (<span className="font-mono">{pending.new_weight_g.toFixed(1)}g</span>) differs
+              notably from your average (<span className="font-mono">{pending.current_average_g.toFixed(1)}g</span>)
+              — did the manufacturer change the spool?
+            </p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => submit(true)} disabled={tare.isPending}
+                className="btn-primary text-xs py-1.5">
+                Add anyway
+              </button>
+              <button type="button" onClick={() => setPending(null)} className="btn-ghost text-xs py-1.5">
+                Re-check
+              </button>
+            </div>
+          </div>
+        )}
+
+        {tare.error && (
+          <p className="text-xs text-danger bg-danger-bg rounded-md px-3 py-2">
+            {(tare.error as Error).message}
+          </p>
+        )}
+
+        {!pending && (
+          <div className="flex gap-2 pt-1">
+            <button type="submit" disabled={tare.isPending} className="btn-primary flex-1 justify-center">
+              {tare.isPending ? 'Saving…' : 'Save tare + mark empty'}
+            </button>
+            <button type="button" onClick={onClose} className="btn-ghost">Cancel</button>
+          </div>
+        )}
+      </form>
+    </Modal>
+  )
+}
+
 // ── Add Profile modal ─────────────────────────────────────────
 
 function AddProfileModal({ onClose }: { onClose: () => void }) {
@@ -945,13 +1121,193 @@ function AddProfileModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+const PROFILE_MATERIALS = ['PLA', 'PLA+', 'PETG', 'ABS', 'ASA', 'TPU', 'Nylon', 'PC', 'Silk PLA', 'Matte PLA', 'PLA-CF', 'PETG-CF', 'Other']
+
+// ── Edit Profile modal ────────────────────────────────────────
+
+function EditProfileModal({ profile, onClose }: { profile: FilamentProfileWithCounts; onClose: () => void }) {
+  const update = useUpdateProfile(profile.id)
+  const [form, setForm] = useState({
+    brand: profile.brand,
+    material: profile.material,
+    material_variant: profile.material_variant ?? '',
+    color_name: profile.color_name ?? '',
+    color_hex: profile.color_hex ?? '#ffffff',
+    net_spool_weight_g: profile.net_spool_weight_g?.toString() ?? '1000',
+    low_gram_threshold_g: profile.low_gram_threshold_g?.toString() ?? '150',
+    critical_gram_threshold_g: profile.critical_gram_threshold_g?.toString() ?? '50',
+    low_spool_threshold: profile.low_spool_threshold?.toString() ?? '1',
+  })
+  const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }))
+
+  // Free-text material support: if the profile's material isn't in the list, keep it selectable
+  const materialOptions = PROFILE_MATERIALS.includes(form.material)
+    ? PROFILE_MATERIALS
+    : [form.material, ...PROFILE_MATERIALS]
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    await update.mutateAsync({
+      brand: form.brand,
+      material: form.material,
+      material_variant: form.material_variant || null,
+      color_name: form.color_name || null,
+      color_hex: form.color_hex || null,
+      net_spool_weight_g: form.net_spool_weight_g ? parseFloat(form.net_spool_weight_g) : undefined,
+      low_gram_threshold_g: form.low_gram_threshold_g ? parseFloat(form.low_gram_threshold_g) : undefined,
+      critical_gram_threshold_g: form.critical_gram_threshold_g ? parseFloat(form.critical_gram_threshold_g) : undefined,
+      low_spool_threshold: form.low_spool_threshold ? parseInt(form.low_spool_threshold) : undefined,
+    } as Parameters<typeof update.mutateAsync>[0])
+    onClose()
+  }
+
+  return (
+    <Modal title="Edit Filament Profile" onClose={onClose} width="max-w-lg">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2">
+            <label className="label">Brand</label>
+            <input className="input" value={form.brand} onChange={(e) => set('brand', e.target.value)} required />
+          </div>
+
+          <div>
+            <label className="label">Material</label>
+            <select className="input" value={form.material} onChange={(e) => set('material', e.target.value)}>
+              {materialOptions.map((m) => <option key={m}>{m}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="label">Variant <span className="text-ink-tertiary">(optional)</span></label>
+            <input className="input" value={form.material_variant} onChange={(e) => set('material_variant', e.target.value)}
+              placeholder="e.g. Matte, Silk" />
+          </div>
+
+          <div>
+            <label className="label">Color name</label>
+            <input className="input" value={form.color_name} onChange={(e) => set('color_name', e.target.value)}
+              placeholder="e.g. Galaxy Black" />
+          </div>
+
+          <div>
+            <label className="label">Color hex</label>
+            <div className="flex gap-2">
+              <input type="color" value={form.color_hex}
+                onChange={(e) => set('color_hex', e.target.value)}
+                className="h-9 w-12 rounded-md border border-border bg-input cursor-pointer p-0.5"
+              />
+              <input className="input flex-1 font-mono" value={form.color_hex}
+                onChange={(e) => set('color_hex', e.target.value)} placeholder="#ffffff" />
+            </div>
+          </div>
+
+          <div>
+            <label className="label">Net weight (g)</label>
+            <input className="input font-mono" type="number" step="1" min="0"
+              value={form.net_spool_weight_g} onChange={(e) => set('net_spool_weight_g', e.target.value)} />
+          </div>
+
+          <div>
+            <label className="label">Low reserve at (spools)</label>
+            <input className="input font-mono" type="number" step="1" min="0"
+              value={form.low_spool_threshold} onChange={(e) => set('low_spool_threshold', e.target.value)} />
+          </div>
+
+          <div>
+            <label className="label">Low gram alert (g)</label>
+            <input className="input font-mono" type="number" step="1" min="0"
+              value={form.low_gram_threshold_g} onChange={(e) => set('low_gram_threshold_g', e.target.value)} />
+          </div>
+
+          <div>
+            <label className="label">Critical gram alert (g)</label>
+            <input className="input font-mono" type="number" step="1" min="0"
+              value={form.critical_gram_threshold_g} onChange={(e) => set('critical_gram_threshold_g', e.target.value)} />
+          </div>
+        </div>
+
+        {/* Empty-spool weight (read-only — managed by tare captures) */}
+        <div className="text-[11px] text-ink-tertiary border-t border-border pt-2">
+          Empty spool weight: {' '}
+          <span className="font-mono text-ink-secondary">
+            {profile.empty_spool_weight_g != null ? `${Number(profile.empty_spool_weight_g).toFixed(1)}g` : 'not measured'}
+          </span>
+          {' '}— set automatically when you weigh empty spools.
+        </div>
+
+        {update.error && (
+          <p className="text-xs text-danger bg-danger-bg rounded-md px-3 py-2">
+            {(update.error as Error).message}
+          </p>
+        )}
+
+        <div className="flex gap-2 pt-1">
+          <button type="submit" disabled={update.isPending} className="btn-primary flex-1 justify-center">
+            {update.isPending ? 'Saving…' : 'Save changes'}
+          </button>
+          <button type="button" onClick={onClose} className="btn-ghost">Cancel</button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+// ── Delete Profile modal ──────────────────────────────────────
+
+function DeleteProfileModal({ profile, onClose }: { profile: FilamentProfileWithCounts; onClose: () => void }) {
+  const del = useDeleteProfile()
+  const spoolTotal = profile.spool_counts.total
+  const label = `${profile.brand} ${profile.material}${profile.material_variant ? ` ${profile.material_variant}` : ''}${profile.color_name ? ` · ${profile.color_name}` : ''}`
+
+  async function handleDelete() {
+    await del.mutateAsync(profile.id)
+    onClose()
+  }
+
+  return (
+    <Modal title="Delete Filament Profile" onClose={onClose}>
+      <div className="space-y-4">
+        <div className="p-3 rounded-md bg-danger-bg border border-border text-xs text-danger">
+          <p className="font-semibold mb-1 flex items-center gap-1.5">
+            <IconAlertTriangle size={13} /> This can't be undone
+          </p>
+          <p className="text-ink-secondary">
+            Deleting <strong className="text-ink-primary">{label}</strong> will also permanently
+            delete {spoolTotal === 0
+              ? 'this profile'
+              : <>all <strong className="text-ink-primary">{spoolTotal}</strong> spool{spoolTotal === 1 ? '' : 's'} under it</>}
+            {' '}and their weight-log history.
+          </p>
+        </div>
+
+        {del.error && (
+          <p className="text-xs text-danger bg-danger-bg rounded-md px-3 py-2">
+            {(del.error as Error).message}
+          </p>
+        )}
+
+        <div className="flex gap-2 pt-1">
+          <button onClick={handleDelete} disabled={del.isPending} className="btn-danger flex-1 justify-center">
+            {del.isPending ? 'Deleting…' : `Delete profile${spoolTotal > 0 ? ` + ${spoolTotal} spool${spoolTotal === 1 ? '' : 's'}` : ''}`}
+          </button>
+          <button type="button" onClick={onClose} className="btn-ghost">Cancel</button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────
 
 type ModalState =
   | { kind: 'weigh'; spool: SpoolWithRemaining }
   | { kind: 'swap';  spool: SpoolWithRemaining }
   | { kind: 'receive'; spool: SpoolWithRemaining }
+  | { kind: 'promote'; spool: SpoolWithRemaining }
+  | { kind: 'empty-tare'; spool: SpoolWithRemaining }
   | { kind: 'add-spool'; profile: FilamentProfileWithCounts }
+  | { kind: 'edit-profile'; profile: FilamentProfileWithCounts }
+  | { kind: 'delete-profile'; profile: FilamentProfileWithCounts }
   | { kind: 'add-profile' }
   | null
 
@@ -1037,6 +1393,10 @@ export default function FilamentPage() {
               onSwap={(spool) => setModal({ kind: 'swap', spool })}
               onAddSpool={(p) => setModal({ kind: 'add-spool', profile: p })}
               onReceive={(spool) => setModal({ kind: 'receive', spool })}
+              onPromote={(spool) => setModal({ kind: 'promote', spool })}
+              onEmptyTare={(spool) => setModal({ kind: 'empty-tare', spool })}
+              onEdit={(p) => setModal({ kind: 'edit-profile', profile: p })}
+              onDelete={(p) => setModal({ kind: 'delete-profile', profile: p })}
             />
           ))}
         </div>
@@ -1057,6 +1417,18 @@ export default function FilamentPage() {
       )}
       {modal?.kind === 'receive' && (
         <ReceiveModal spool={modal.spool} onClose={() => setModal(null)} />
+      )}
+      {modal?.kind === 'promote' && (
+        <PromoteModal spool={modal.spool} onClose={() => setModal(null)} />
+      )}
+      {modal?.kind === 'empty-tare' && (
+        <EmptyTareModal spool={modal.spool} onClose={() => setModal(null)} />
+      )}
+      {modal?.kind === 'edit-profile' && (
+        <EditProfileModal profile={modal.profile} onClose={() => setModal(null)} />
+      )}
+      {modal?.kind === 'delete-profile' && (
+        <DeleteProfileModal profile={modal.profile} onClose={() => setModal(null)} />
       )}
     </AppShell>
   )
