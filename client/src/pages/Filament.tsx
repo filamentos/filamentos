@@ -21,6 +21,7 @@ import Badge from '../components/ui/Badge'
 import FilamentProgress from '../components/ui/FilamentProgress'
 import Modal from '../components/ui/Modal'
 import PriceHistory from '../components/ui/PriceHistory'
+import Insights from '../components/ui/Insights'
 import {
   useProfiles,
   useWeighSpool,
@@ -522,6 +523,9 @@ function ProfileSpoolList({
 
       {/* Price history (filament_spool keyed by profile id) */}
       <PriceHistory itemType="filament_spool" itemId={profile.id} />
+
+      {/* Running-averages insights (display-only) */}
+      <Insights profileId={profile.id} />
     </div>
   )
 }
