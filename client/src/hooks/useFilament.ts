@@ -105,6 +105,35 @@ export function useWeighSpool(spoolId: string) {
   })
 }
 
+export function usePromoteSpool(spoolId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { bare_gross_weight_g: number }) =>
+      api.post(`/filament/spools/${spoolId}/promote`, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['filament'] }),
+  })
+}
+
+export interface EmptyTareResult {
+  needs_confirmation?: boolean
+  new_weight_g?: number
+  current_average_g?: number
+  empty_spool_weight_g?: number
+  sample_count?: number
+}
+
+export function useEmptyTare(spoolId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { empty_weight_g: number; confirm?: boolean }) =>
+      api.post<EmptyTareResult>(`/filament/spools/${spoolId}/empty-tare`, data),
+    onSuccess: (res) => {
+      // Only invalidate when an actual save happened (not a confirmation prompt)
+      if (!res.needs_confirmation) qc.invalidateQueries({ queryKey: ['filament'] })
+    },
+  })
+}
+
 export function useSwapSpool(spoolId: string) {
   const qc = useQueryClient()
   return useMutation({

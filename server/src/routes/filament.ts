@@ -440,6 +440,156 @@ filament.post('/spools/:id/receive', async (c) => {
 })
 
 /**
+ * POST /api/filament/spools/:id/promote
+ * Manually promote a reserve/partial_reserve spool to active by weighing the
+ * BARE spool (packaging removed). The entered weight becomes the spool's
+ * opening + current gross weight; status → active, opened_date → today.
+ */
+filament.post('/spools/:id/promote', async (c) => {
+  const userId = c.get('userId')
+  const spoolId = c.req.param('id')
+
+  type PromoteBody = { bare_gross_weight_g?: number }
+  const body = await c.req.json<PromoteBody>().catch(() => ({} as PromoteBody))
+
+  if (body.bare_gross_weight_g == null || isNaN(Number(body.bare_gross_weight_g)) || body.bare_gross_weight_g < 0) {
+    return err(c, 'bare_gross_weight_g is required and must be a non-negative number')
+  }
+
+  const [spool] = await db
+    .select()
+    .from(spools)
+    .where(and(eq(spools.id, spoolId), eq(spools.user_id, userId)))
+    .limit(1)
+
+  if (!spool) return err(c, 'Spool not found', 404)
+  if (spool.status !== 'reserve' && spool.status !== 'partial_reserve') {
+    return err(c, 'Only reserve spools can be promoted to active')
+  }
+
+  const today = new Date().toISOString().split('T')[0]
+  const gross = String(body.bare_gross_weight_g)
+
+  // Log the opening measurement
+  await db.insert(weightLogs).values({
+    spool_id: spoolId,
+    user_id: userId,
+    logged_at: new Date(),
+    gross_weight_g: gross,
+    event_type: 'open',
+    notes: 'Bare-spool weigh-in at promote to active',
+  })
+
+  const [updated] = await db
+    .update(spools)
+    .set({
+      status: 'active',
+      opened_date: today,
+      opening_gross_weight_g: gross,
+      current_gross_weight_g: gross,
+    })
+    .where(eq(spools.id, spoolId))
+    .returning()
+
+  evaluateAlerts(userId).catch((e) => console.error('[alerts]', e))
+  return ok(c, updated)
+})
+
+/**
+ * POST /api/filament/spools/:id/empty-tare
+ * Capture the empty bare-spool weight when a spool is finished. Saves the
+ * measurement as a sample on the PROFILE, recomputes empty_spool_weight_g as the
+ * average of all samples, and marks the spool empty.
+ *
+ * Drift guard: if the new measurement differs from the current average by more
+ * than 10g and `confirm` is not set, return needs_confirmation without saving.
+ */
+filament.post('/spools/:id/empty-tare', async (c) => {
+  const userId = c.get('userId')
+  const spoolId = c.req.param('id')
+
+  type TareBody = { empty_weight_g: number; confirm?: boolean }
+  const body = await c.req.json<TareBody>()
+
+  if (body.empty_weight_g == null || isNaN(Number(body.empty_weight_g)) || body.empty_weight_g < 0) {
+    return err(c, 'empty_weight_g is required and must be a non-negative number')
+  }
+
+  const [spool] = await db
+    .select()
+    .from(spools)
+    .where(and(eq(spools.id, spoolId), eq(spools.user_id, userId)))
+    .limit(1)
+  if (!spool) return err(c, 'Spool not found', 404)
+
+  const [profile] = await db
+    .select()
+    .from(filamentProfiles)
+    .where(and(eq(filamentProfiles.id, spool.profile_id), eq(filamentProfiles.user_id, userId)))
+    .limit(1)
+  if (!profile) return err(c, 'Profile not found', 404)
+
+  // Existing samples + current average
+  type Sample = { weight_g: number; measured_at: string }
+  const samples: Sample[] = Array.isArray(profile.empty_spool_weight_samples)
+    ? (profile.empty_spool_weight_samples as Sample[])
+    : []
+  const currentAvg = samples.length
+    ? samples.reduce((s, x) => s + x.weight_g, 0) / samples.length
+    : (profile.empty_spool_weight_g != null ? parseFloat(profile.empty_spool_weight_g) : null)
+
+  // Drift guard — only when there is an established average to compare to
+  if (currentAvg != null && !body.confirm && Math.abs(body.empty_weight_g - currentAvg) > 10) {
+    return ok(c, {
+      needs_confirmation: true,
+      new_weight_g: body.empty_weight_g,
+      current_average_g: Math.round(currentAvg * 10) / 10,
+    })
+  }
+
+  // Append sample + recompute average
+  const nextSamples: Sample[] = [
+    ...samples,
+    { weight_g: body.empty_weight_g, measured_at: new Date().toISOString() },
+  ]
+  const newAvg = nextSamples.reduce((s, x) => s + x.weight_g, 0) / nextSamples.length
+  const newAvgRounded = Math.round(newAvg * 10) / 10
+
+  await db
+    .update(filamentProfiles)
+    .set({
+      empty_spool_weight_samples: nextSamples,
+      empty_spool_weight_g: newAvgRounded.toString(),
+    })
+    .where(eq(filamentProfiles.id, profile.id))
+
+  // Log the empty-spool tare measurement against the spool
+  await db.insert(weightLogs).values({
+    spool_id: spoolId,
+    user_id: userId,
+    logged_at: new Date(),
+    gross_weight_g: String(body.empty_weight_g),
+    event_type: 'empty_spool_tare',
+    notes: 'Empty bare-spool tare',
+  })
+
+  // Mark the spool empty
+  const today = new Date().toISOString().split('T')[0]
+  const [updated] = await db
+    .update(spools)
+    .set({ status: 'empty', empty_date: today })
+    .where(eq(spools.id, spoolId))
+    .returning()
+
+  evaluateAlerts(userId).catch((e) => console.error('[alerts]', e))
+  return ok(c, {
+    spool: updated,
+    empty_spool_weight_g: newAvgRounded,
+    sample_count: nextSamples.length,
+  })
+})
+
+/**
  * PATCH /api/filament/spools/:id
  * Update a spool (status, weight, storage, etc.)
  */
@@ -501,7 +651,7 @@ filament.post('/spools/:id/weigh', async (c) => {
 
   type WeighBody = {
     gross_weight_g: number
-    event_type?: 'weigh' | 'pre_print' | 'post_print' | 'open' | 'empty'
+    event_type?: 'weigh' | 'pre_print' | 'post_print' | 'open' | 'empty' | 'empty_spool_tare'
     slicer_estimate_g?: number
     notes?: string
   }
