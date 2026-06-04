@@ -332,10 +332,19 @@ async function buildProjectDetail(userId: string, project: ProjectRow) {
   }
 }
 
-/** sum of remaining filament grams across active spools of a profile */
+/**
+ * Sum of available filament grams across a profile's usable spools, for the
+ * forward-looking project inventory check.
+ *  - A spool that has been weighed (has current_gross_weight_g):
+ *      remaining = gross − empty_spool_weight_g
+ *  - A sealed/unweighed reserve spool: counts as FULL = net_spool_weight_g
+ *    (it's unopened, so assume a fresh full spool for planning).
+ *  - 'ordered' spools are excluded — they haven't physically arrived.
+ */
 async function activeFilamentGrams(profileId: string): Promise<number> {
   const [profile] = await db.select().from(filamentProfiles).where(eq(filamentProfiles.id, profileId))
   const empty = num(profile?.empty_spool_weight_g)
+  const net = num(profile?.net_spool_weight_g) || 1000
   const rows = await db
     .select({ gross: spools.current_gross_weight_g, status: spools.status })
     .from(spools)
@@ -343,8 +352,12 @@ async function activeFilamentGrams(profileId: string): Promise<number> {
   return rows
     .filter((r) => r.status === 'active' || r.status === 'reserve' || r.status === 'partial_reserve')
     .reduce((sum, r) => {
-      const gross = num(r.gross)
-      return sum + Math.max(0, gross - empty)
+      if (r.gross != null) {
+        // Measured spool — real remaining grams
+        return sum + Math.max(0, num(r.gross) - empty)
+      }
+      // Sealed / unweighed → assume a full spool for planning
+      return sum + net
     }, 0)
 }
 
