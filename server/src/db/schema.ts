@@ -133,6 +133,7 @@ export const filamentProfiles = pgTable('filament_profiles', {
   diameter_mm: numeric('diameter_mm', { precision: 4, scale: 2 }).default('1.75').notNull(),
   empty_spool_weight_g: numeric('empty_spool_weight_g', { precision: 6, scale: 1 }),
   empty_spool_weight_samples: jsonb('empty_spool_weight_samples').default(sql`'[]'::jsonb`),
+  net_yield_samples: jsonb('net_yield_samples').default(sql`'[]'::jsonb`),
   net_spool_weight_g: numeric('net_spool_weight_g', { precision: 6, scale: 1 }).default('1000').notNull(),
   cost_per_spool: numeric('cost_per_spool', { precision: 8, scale: 2 }),
   currency: text('currency').default('USD').notNull(),

@@ -30,6 +30,7 @@ export interface FilamentProfile {
   diameter_mm: number
   empty_spool_weight_g: number | null
   empty_spool_weight_samples: Array<{ weight_g: number; measured_at: string }> | null
+  net_yield_samples: Array<{ yield_g: number; measured_at: string }> | null
   net_spool_weight_g: number
   cost_per_spool: number | null
   currency: string

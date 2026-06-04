@@ -547,19 +547,39 @@ filament.post('/spools/:id/empty-tare', async (c) => {
     })
   }
 
-  // Append sample + recompute average
+  const nowIso = new Date().toISOString()
+
+  // Append empty-spool sample + recompute average
   const nextSamples: Sample[] = [
     ...samples,
-    { weight_g: body.empty_weight_g, measured_at: new Date().toISOString() },
+    { weight_g: body.empty_weight_g, measured_at: nowIso },
   ]
   const newAvg = nextSamples.reduce((s, x) => s + x.weight_g, 0) / nextSamples.length
   const newAvgRounded = Math.round(newAvg * 10) / 10
+
+  // Capture this spool's ACTUAL net filament yield, when we know what the bare
+  // spool weighed at activation: yield = opening bare gross − empty bare weight.
+  // A "1000g" spool rarely held exactly 1000g; this records what it truly held.
+  type YieldSample = { yield_g: number; measured_at: string }
+  const yieldSamples: YieldSample[] = Array.isArray(profile.net_yield_samples)
+    ? (profile.net_yield_samples as YieldSample[])
+    : []
+  let nextYieldSamples = yieldSamples
+  let capturedYield: number | null = null
+  if (spool.opening_gross_weight_g != null) {
+    const yieldG = Math.round((parseFloat(spool.opening_gross_weight_g) - body.empty_weight_g) * 10) / 10
+    if (yieldG > 0) {
+      capturedYield = yieldG
+      nextYieldSamples = [...yieldSamples, { yield_g: yieldG, measured_at: nowIso }]
+    }
+  }
 
   await db
     .update(filamentProfiles)
     .set({
       empty_spool_weight_samples: nextSamples,
       empty_spool_weight_g: newAvgRounded.toString(),
+      net_yield_samples: nextYieldSamples,
     })
     .where(eq(filamentProfiles.id, profile.id))
 
@@ -586,6 +606,8 @@ filament.post('/spools/:id/empty-tare', async (c) => {
     spool: updated,
     empty_spool_weight_g: newAvgRounded,
     sample_count: nextSamples.length,
+    captured_net_yield_g: capturedYield,
+    net_yield_sample_count: nextYieldSamples.length,
   })
 })
 
