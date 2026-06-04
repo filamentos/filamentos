@@ -1267,7 +1267,7 @@ After this: the sidebar is leaner — Filament, Printers, Workshop, Projects, Se
 
 **SHIPPED (3 commits):** Final sidebar = Dashboard · Filament · Printers · Workshop · Projects (+ Alerts, Settings). Spool order flow live (ordered → received). Purchases page removed, price history now expandable on each filament profile + workshop item card via reusable PriceHistory component. Kits page/tables removed; print kits are now plain workshop items. Two retained features (NOT the removed print-kit system): `workshop/import-kit` assortment import (box of mixed M3 screws → many items) and `source_kit_id` column. Legacy `print_kit` item_type kept in Spend chart so historical purchase data still aggregates.
 
-### Phase 4.7 — Spool weight lifecycle + profile edit/delete 🔧 PLANNED
+### Phase 4.7 — Spool weight lifecycle + profile edit/delete ✅ COMPLETE (live)
 
 Fixes the weight-tracking model and adds profile management. The core principle: inventory weight is always the **bare spool** (filament + core, no packaging), measured consistently.
 
@@ -1287,6 +1287,26 @@ Fixes the weight-tracking model and adds profile management. The core principle:
 - Each profile gets a **delete** action with confirmation (cascades to its spools — warn clearly)
 
 **Remaining-filament math:** `remaining_g = current_gross_weight_g − empty_spool_weight_g` when the spool has been weighed; sealed spools report net_spool_weight_g for planning. Display "Sealed — not yet opened" for unweighed sealed spools rather than "Not weighed".
+
+### Phase 4.8 — Manual empty-weight override + per-profile running averages 🔧 PLANNED
+
+Refines the weight model and adds cost-intelligence averages. Core principle (carried from the user): **actuals drive math, averages drive insight.** Quotes/projects always cost from the ACTUAL active spool's price and weights — never from averages (a sale or shortage should make that specific project genuinely cheaper/pricier; the math must tell the truth about that print). Averages are purely informational.
+
+**1. Manual empty-spool weight override (fix the Add/Edit inconsistency)**
+- The Edit Profile modal is missing the "Empty spool weight (g)" field that Add has. Add it to Edit.
+- A manually entered empty-spool weight ALWAYS wins for the live remaining-grams math of the current active spool: `remaining = current_gross − empty_spool_weight_g`. Manual is never silently overwritten by the measured average.
+- Show whether the current value is a manual entry or measured. The field is editable in both Add and Edit.
+
+**2. Three per-profile running averages (insight only — never feed project/quote math)**
+Stored per filament profile, each as a sample history with a computed average:
+- **Avg empty spool weight** — from `empty_spool_weight_samples` (already exists). Each empty-spool weigh-in adds a sample.
+- **Avg net filament yield** — actual usable filament per finished spool. Captured when a spool goes empty: `net_yield = (first bare weigh-in / opening_gross_weight_g) − (empty spool weight)`. A "1000g" spool is rarely exactly 1000g; this tracks what you actually get. New field: `net_yield_samples jsonb DEFAULT '[]'` → [{yield_g, measured_at}].
+- **Avg true cost per gram** — combines the profile's price history (purchase_records) with the avg net yield: `cost_per_gram = avg(price_paid) / avg_net_yield`. Computed from existing data, no new capture needed.
+
+**3. Insights panel on each profile card**
+An expandable "Insights / Averages" panel (near the existing Price History expander) showing: avg empty weight (N samples), avg net yield (N spools), avg true cost/gram. Each shows the sample count so the user knows how much data backs it.
+
+**Explicitly NOT changing:** project/quote cost math stays on the ACTUAL active spool — `cost_per_gram = spool's actual cost_per_spool / actual net weight`. The averages never feed costing. (Confirmed by user: "the math on projects should be actual prices to be true to the maths.")
 
 ### Phase 5 — SaaS launch
 - [ ] Remove allowlist → open signups
@@ -1722,7 +1742,6 @@ Key icons used:
 4. **Status through color + icon** — never rely on color alone. Every alert badge has an icon. Every status tag has text. Accessible by default.
 5. **Monospace for numbers** — all weights, prices, quantities, and measurements use `font-mono`. Makes data scannable and prevents layout shift.
 6. **Mobile-first layout** — sidebar collapses to bottom nav on mobile. Cards stack to full width. Weight logging flow is thumb-friendly.
-
 ---
 ## Notes for Claude Code
 

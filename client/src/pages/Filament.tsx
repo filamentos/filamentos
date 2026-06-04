@@ -1134,11 +1134,27 @@ function EditProfileModal({ profile, onClose }: { profile: FilamentProfileWithCo
     color_name: profile.color_name ?? '',
     color_hex: profile.color_hex ?? '#ffffff',
     net_spool_weight_g: profile.net_spool_weight_g?.toString() ?? '1000',
+    empty_spool_weight_g: profile.empty_spool_weight_g?.toString() ?? '',
     low_gram_threshold_g: profile.low_gram_threshold_g?.toString() ?? '150',
     critical_gram_threshold_g: profile.critical_gram_threshold_g?.toString() ?? '50',
     low_spool_threshold: profile.low_spool_threshold?.toString() ?? '1',
   })
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }))
+
+  // Source of the saved empty-spool weight: measured-average vs manual override.
+  // If the saved value matches the average of measured samples (to 0.1g), it
+  // came from the empty-tare flow; otherwise it's a manual entry.
+  const emptySamples = Array.isArray(profile.empty_spool_weight_samples) ? profile.empty_spool_weight_samples : []
+  const measuredAvg = emptySamples.length
+    ? emptySamples.reduce((s, x) => s + x.weight_g, 0) / emptySamples.length
+    : null
+  const savedEmpty = profile.empty_spool_weight_g != null ? Number(profile.empty_spool_weight_g) : null
+  const emptySource =
+    savedEmpty == null
+      ? 'none'
+      : measuredAvg != null && Math.abs(savedEmpty - Math.round(measuredAvg * 10) / 10) < 0.05
+        ? 'measured'
+        : 'manual'
 
   // Free-text material support: if the profile's material isn't in the list, keep it selectable
   const materialOptions = PROFILE_MATERIALS.includes(form.material)
@@ -1154,6 +1170,8 @@ function EditProfileModal({ profile, onClose }: { profile: FilamentProfileWithCo
       color_name: form.color_name || null,
       color_hex: form.color_hex || null,
       net_spool_weight_g: form.net_spool_weight_g ? parseFloat(form.net_spool_weight_g) : undefined,
+      // Manual empty-weight always wins; null clears it back to unmeasured
+      empty_spool_weight_g: form.empty_spool_weight_g === '' ? null : parseFloat(form.empty_spool_weight_g),
       low_gram_threshold_g: form.low_gram_threshold_g ? parseFloat(form.low_gram_threshold_g) : undefined,
       critical_gram_threshold_g: form.critical_gram_threshold_g ? parseFloat(form.critical_gram_threshold_g) : undefined,
       low_spool_threshold: form.low_spool_threshold ? parseInt(form.low_spool_threshold) : undefined,
@@ -1208,6 +1226,23 @@ function EditProfileModal({ profile, onClose }: { profile: FilamentProfileWithCo
           </div>
 
           <div>
+            <label className="label">Empty spool weight (g)</label>
+            <input className="input font-mono" type="number" step="0.1" min="0"
+              value={form.empty_spool_weight_g} onChange={(e) => set('empty_spool_weight_g', e.target.value)}
+              placeholder="e.g. 246" />
+            <p className="text-[10px] text-ink-tertiary mt-1">
+              {emptySource === 'measured'
+                ? `Measured avg of ${emptySamples.length} sample${emptySamples.length === 1 ? '' : 's'}`
+                : emptySource === 'manual'
+                  ? 'Manual entry'
+                  : 'Not set'}
+              {measuredAvg != null && emptySource === 'manual' && (
+                <> · measured avg {Math.round(measuredAvg * 10) / 10}g</>
+              )}
+            </p>
+          </div>
+
+          <div>
             <label className="label">Low reserve at (spools)</label>
             <input className="input font-mono" type="number" step="1" min="0"
               value={form.low_spool_threshold} onChange={(e) => set('low_spool_threshold', e.target.value)} />
@@ -1224,15 +1259,6 @@ function EditProfileModal({ profile, onClose }: { profile: FilamentProfileWithCo
             <input className="input font-mono" type="number" step="1" min="0"
               value={form.critical_gram_threshold_g} onChange={(e) => set('critical_gram_threshold_g', e.target.value)} />
           </div>
-        </div>
-
-        {/* Empty-spool weight (read-only — managed by tare captures) */}
-        <div className="text-[11px] text-ink-tertiary border-t border-border pt-2">
-          Empty spool weight: {' '}
-          <span className="font-mono text-ink-secondary">
-            {profile.empty_spool_weight_g != null ? `${Number(profile.empty_spool_weight_g).toFixed(1)}g` : 'not measured'}
-          </span>
-          {' '}— set automatically when you weigh empty spools.
         </div>
 
         {update.error && (
