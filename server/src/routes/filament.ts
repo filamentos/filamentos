@@ -138,6 +138,77 @@ filament.get('/profiles/:id', async (c) => {
 })
 
 /**
+ * GET /api/filament/profiles/:id/insights
+ * Per-profile running AVERAGES — informational only. These never feed project
+ * or quote cost math (that always uses the actual active spool's price/weight).
+ *   - avg_empty_weight: average of measured empty-spool tares, with sample count
+ *   - avg_net_yield: average actual filament yield per finished spool, with count
+ *   - avg_cost_per_gram: avg(price paid across this profile's purchases) / avg net
+ *     yield, with the number of purchases backing it (null if data is missing)
+ */
+filament.get('/profiles/:id/insights', async (c) => {
+  const userId = c.get('userId')
+  const profileId = c.req.param('id')
+
+  const [profile] = await db
+    .select()
+    .from(filamentProfiles)
+    .where(and(eq(filamentProfiles.id, profileId), eq(filamentProfiles.user_id, userId)))
+    .limit(1)
+
+  if (!profile) return err(c, 'Profile not found', 404)
+
+  const round = (n: number, d = 1) => {
+    const f = 10 ** d
+    return Math.round(n * f) / f
+  }
+
+  // Avg empty-spool weight
+  const emptySamples = Array.isArray(profile.empty_spool_weight_samples)
+    ? (profile.empty_spool_weight_samples as Array<{ weight_g: number }>)
+    : []
+  const avgEmpty = emptySamples.length
+    ? round(emptySamples.reduce((s, x) => s + x.weight_g, 0) / emptySamples.length)
+    : null
+
+  // Avg net yield
+  const yieldSamples = Array.isArray(profile.net_yield_samples)
+    ? (profile.net_yield_samples as Array<{ yield_g: number }>)
+    : []
+  const avgYield = yieldSamples.length
+    ? round(yieldSamples.reduce((s, x) => s + x.yield_g, 0) / yieldSamples.length)
+    : null
+
+  // Avg price paid across this profile's purchases
+  const purchases = await db
+    .select({ price_per_unit: purchaseRecords.price_per_unit, total_paid: purchaseRecords.total_paid })
+    .from(purchaseRecords)
+    .where(
+      and(
+        eq(purchaseRecords.user_id, userId),
+        eq(purchaseRecords.item_type, 'filament_spool'),
+        eq(purchaseRecords.item_ref_id, profileId),
+      ),
+    )
+  const prices = purchases
+    .map((p) => (p.price_per_unit != null ? parseFloat(p.price_per_unit)
+      : p.total_paid != null ? parseFloat(p.total_paid) : NaN))
+    .filter((n) => !isNaN(n) && n > 0)
+  const avgPrice = prices.length ? prices.reduce((s, n) => s + n, 0) / prices.length : null
+
+  // Avg true cost per gram = avg price / avg net yield (only when both exist)
+  const avgCostPerGram = (avgPrice != null && avgYield != null && avgYield > 0)
+    ? round(avgPrice / avgYield, 4)
+    : null
+
+  return ok(c, {
+    avg_empty_weight:  { value: avgEmpty,  sample_count: emptySamples.length },
+    avg_net_yield:     { value: avgYield,  sample_count: yieldSamples.length },
+    avg_cost_per_gram: { value: avgCostPerGram, purchase_count: prices.length },
+  })
+})
+
+/**
  * POST /api/filament/profiles
  * Create a new filament profile.
  */
